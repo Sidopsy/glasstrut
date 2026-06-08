@@ -60,6 +60,7 @@ dotnet test
 - Use `DateTime.UtcNow` for timestamps.
 - Backend listens locally; frontend calls it via API.
 - GitHub Pages deploys the `frontend/` directory automatically on pushes to `main` that touch `frontend/**`.
+- Never commit secrets or keys to git. Never expose or log secrets in code.
 
 ## Current status
 

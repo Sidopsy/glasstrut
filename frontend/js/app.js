@@ -1,22 +1,5 @@
 const API = API_BASE;
 
-document.body.addEventListener("htmx:configRequest", (e) => {
-  const original = new URL(e.detail.path, window.location.origin);
-  const rewritten = new URL(original.pathname + original.search, API_BASE);
-  e.detail.path = rewritten.toString();
-  const token = localStorage.getItem("token");
-  if (token) {
-    e.detail.headers["Authorization"] = "Bearer " + token;
-  }
-});
-
-document.body.addEventListener("htmx:responseError", (e) => {
-  if (e.detail.xhr.status === 401) {
-    localStorage.removeItem("token");
-    window.location.reload();
-  }
-});
-
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("/sw.js");
 }
@@ -29,7 +12,7 @@ function authHeaders() {
 async function apiFetch(path, options = {}) {
   const res = await fetch(API + path, {
     ...options,
-    headers: { ...authHeaders(), ...options.headers },
+    headers: { ...authHeaders(), "Content-Type": "application/x-www-form-urlencoded", ...options.headers },
   });
   if (res.status === 401) {
     localStorage.removeItem("token");
@@ -45,22 +28,79 @@ function showDashboard(email) {
   loadFamilies();
 }
 
+function showAuth() {
+  document.getElementById("auth-section").style.display = "block";
+  document.getElementById("dashboard").style.display = "none";
+}
+
+function logout() {
+  localStorage.removeItem("token");
+  showAuth();
+}
+
+async function authFetch(endpoint, email, password) {
+  const formData = new URLSearchParams({ email, password });
+  const res = await fetch(API + endpoint, {
+    method: "POST",
+    body: formData,
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || "Request failed");
+  }
+  return res.json();
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   const token = localStorage.getItem("token");
   if (token) {
-    const payload = JSON.parse(atob(token.split(".")[1]));
-    showDashboard(payload["http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"]);
+    try {
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      const email = payload["http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"];
+      if (email) showDashboard(email);
+      else showAuth();
+    } catch {
+      localStorage.removeItem("token");
+      showAuth();
+    }
   }
+
+  document.getElementById("login-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const errorDiv = document.getElementById("auth-error");
+    try {
+      const data = await authFetch("/api/auth/login",
+        document.getElementById("login-email").value,
+        document.getElementById("login-password").value);
+      localStorage.setItem("token", data.token);
+      showDashboard(data.email);
+      errorDiv.textContent = "";
+    } catch (err) {
+      errorDiv.textContent = err.message;
+    }
+  });
+
+  document.getElementById("register-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const errorDiv = document.getElementById("auth-error");
+    try {
+      const data = await authFetch("/api/auth/register",
+        document.getElementById("register-email").value,
+        document.getElementById("register-password").value);
+      localStorage.setItem("token", data.token);
+      showDashboard(data.email);
+      errorDiv.textContent = "";
+    } catch (err) {
+      errorDiv.textContent = err.message;
+    }
+  });
 
   document.getElementById("create-family-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const name = document.getElementById("family-name").value;
     const formData = new URLSearchParams({ name });
-    const res = await apiFetch("/api/families", {
-      method: "POST",
-      body: formData,
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    });
+    const res = await apiFetch("/api/families", { method: "POST", body: formData });
     if (res.ok) {
       document.getElementById("family-name").value = "";
       loadFamilies();
@@ -74,11 +114,7 @@ document.addEventListener("DOMContentLoaded", () => {
     e.preventDefault();
     const inviteCode = document.getElementById("invite-code").value;
     const formData = new URLSearchParams({ inviteCode });
-    const res = await apiFetch("/api/families/join", {
-      method: "POST",
-      body: formData,
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    });
+    const res = await apiFetch("/api/families/join", { method: "POST", body: formData });
     if (res.ok) {
       document.getElementById("invite-code").value = "";
       loadFamilies();
@@ -135,17 +171,6 @@ async function loadFamilyDetail(familyId) {
     </div>
   `;
   detail.scrollIntoView({ behavior: "smooth" });
-}
-
-function logout() {
-  localStorage.removeItem("token");
-  window.location.reload();
-}
-
-function handleAuthResponse(target, responseText) {
-  const data = JSON.parse(responseText);
-  localStorage.setItem("token", data.token);
-  window.location.reload();
 }
 
 function escapeHtml(str) {

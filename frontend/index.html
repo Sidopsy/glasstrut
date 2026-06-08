@@ -19,22 +19,20 @@
   <main>
     <section id="auth-section">
       <h2>Login</h2>
-      <form hx-post="/api/auth/login" hx-target="#auth-result" hx-swap="innerHTML"
-            hx-on::after-request="if(event.detail.successful) handleAuthResponse(this, event.detail.xhr.response)">
-        <input type="email" name="email" placeholder="Email" required>
-        <input type="password" name="password" placeholder="Password" required>
+      <form id="login-form">
+        <input type="email" id="login-email" placeholder="Email" required>
+        <input type="password" id="login-password" placeholder="Password" required>
         <button type="submit">Login</button>
       </form>
 
       <h2>Register</h2>
-      <form hx-post="/api/auth/register" hx-target="#auth-result" hx-swap="innerHTML"
-            hx-on::after-request="if(event.detail.successful) handleAuthResponse(this, event.detail.xhr.response)">
-        <input type="email" name="email" placeholder="Email" required>
-        <input type="password" name="password" placeholder="Password" required>
+      <form id="register-form">
+        <input type="email" id="register-email" placeholder="Email" required>
+        <input type="password" id="register-password" placeholder="Password" required>
         <button type="submit">Register</button>
       </form>
 
-      <div id="auth-result"></div>
+      <div id="auth-error"></div>
     </section>
 
     <section id="dashboard" style="display:none">
