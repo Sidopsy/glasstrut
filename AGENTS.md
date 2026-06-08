@@ -47,7 +47,7 @@ dotnet run
 
 # EF Core migrations (after adding/changing models)
 dotnet ef migrations add <Name>
-dotnet ef database update
+# Migrations auto-apply on startup in development — no manual update needed
 
 # Tests
 cd backend
@@ -63,4 +63,9 @@ dotnet test
 
 ## Current status
 
-Phase 1 (Foundation) complete. Phase 2 (Authentication) complete. ASP.NET Core Identity + JWT auth, register/login endpoints, frontend login/register forms with token storage.
+Phase 1 (Foundation) complete. Phase 2 (Authentication) complete. Phase 3 (Families) complete.
+
+- Family model (Family + FamilyMember) with unique invite codes
+- Create family (creator becomes Admin), join by code, list, view details
+- Remove members (admin only)
+- Tests: 10 passing

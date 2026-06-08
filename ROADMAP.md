@@ -13,9 +13,9 @@
 - [x] Session management / token handling (JWT)
 
 ## Phase 3 — Families
-- [ ] Create family
-- [ ] Join family (invite by code / link)
-- [ ] Family member management
+- [x] Create family
+- [x] Join family (invite by code / link)
+- [x] Family member management
 
 ## Phase 4 — Challenges
 - [ ] Create challenge (family-wide, self-only, targeted)
