@@ -2,6 +2,7 @@ using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using Glasstrut.Api.Data;
 using Glasstrut.Api.Endpoints;
@@ -56,7 +57,18 @@ var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
 {
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    db.Database.Migrate();
+
     app.MapOpenApi();
+
+    var frontendPath = Path.Combine(app.Environment.ContentRootPath, "..", "..", "frontend");
+    frontendPath = Path.GetFullPath(frontendPath);
+    var fileProvider = new PhysicalFileProvider(frontendPath);
+
+    app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = fileProvider });
+    app.UseStaticFiles(new StaticFileOptions { FileProvider = fileProvider });
 }
 
 app.UseCors();

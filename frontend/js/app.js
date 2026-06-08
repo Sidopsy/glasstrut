@@ -1,13 +1,11 @@
 document.body.addEventListener("htmx:configRequest", (e) => {
-  e.detail.path = API_BASE + e.detail.path;
+  const original = new URL(e.detail.path, window.location.origin);
+  const rewritten = new URL(original.pathname + original.search, API_BASE);
+  e.detail.path = rewritten.toString();
   const token = localStorage.getItem("token");
   if (token) {
     e.detail.headers["Authorization"] = "Bearer " + token;
   }
-});
-
-document.body.addEventListener("htmx:afterSwap", (e) => {
-  if (e.detail.requestConfig.elt.id === "auth-result") return;
 });
 
 document.body.addEventListener("htmx:responseError", (e) => {
@@ -21,7 +19,8 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("/sw.js");
 }
 
-function handleAuthResponse(target, data) {
+function handleAuthResponse(target, responseText) {
+  const data = JSON.parse(responseText);
   localStorage.setItem("token", data.token);
   window.location.reload();
 }
