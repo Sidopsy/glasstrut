@@ -1,11 +1,11 @@
 # Roadmap
 
 ## Phase 1 — Foundation
-- [ ] Initialize frontend (HTMX static site skeleton)
-- [ ] Initialize .NET Web API backend
-- [ ] Set up GitHub Pages deployment for frontend
-- [ ] Set up PWA manifest + service worker
-- [ ] Set up database schema (SQLite / local DB)
+- [x] Initialize frontend (HTMX static site skeleton)
+- [x] Initialize .NET Web API backend
+- [x] Set up GitHub Pages deployment for frontend
+- [x] Set up PWA manifest + service worker
+- [x] Set up database schema (SQLite / local DB)
 
 ## Phase 2 — Authentication
 - [ ] User registration (email + password)

@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Glasstrut.Api.Tests/Glasstrut.Api.Tests.csproj" />
+  <Project Path="Glasstrut.Api/Glasstrut.Api.csproj" />
+</Solution>

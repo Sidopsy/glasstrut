@@ -21,8 +21,46 @@ Simple family challenge PWA. HTMX frontend (GitHub Pages) + .NET backend (local)
 ## Workflow
 
 - Follow [ROADMAP.md](./ROADMAP.md) and check off items as they're completed.
-- Keep this file up to date throughout development — document commands, conventions, and quirks as they emerge.
+- Keep this file and [README.md](./README.md) up to date throughout development — document commands, conventions, and quirks as they emerge.
+- At big architectural intersections, stop and ask the user for direction before proceeding.
+- Feel free to refactor/remove content in README.md that no longer reflects the current state of the project.
+- After completing a tested, working step, create a commit for those changes.
+- After a phase is complete, tested, and signed off, push all commits for that phase.
+- No pull requests — commit and push directly to main. Use only safe git commands: `status`, `add`, `commit`, `push`. Never force push.
+
+## Layout
+
+```
+backend/Glasstrut.Api/      — .NET 10 Web API (minimal API, service + repo layers)
+backend/Glasstrut.Api.Tests/ — xUnit integration tests
+frontend/                   — HTMX static site (published to GitHub Pages)
+.github/workflows/          — CI / deployment
+```
+
+## Commands
+
+```sh
+# Backend — build & run
+cd backend/Glasstrut.Api
+dotnet build
+dotnet run
+
+# EF Core migrations (after adding/changing models)
+dotnet ef migrations add <Name>
+dotnet ef database update
+
+# Tests
+cd backend
+dotnet test
+```
+
+## Conventions
+
+- Keep model, service, repository, and endpoint files in their respective directories under `backend/Glasstrut.Api/`.
+- Use `DateTime.UtcNow` for timestamps.
+- Backend listens locally; frontend calls it via API.
+- GitHub Pages deploys the `frontend/` directory automatically on pushes to `main` that touch `frontend/**`.
 
 ## Current status
 
-Skeleton repo. No tooling configured yet. As build/test/lint commands are added, document them here.
+Phase 1 (Foundation) complete. Frontend skeleton with HTMX + PWA, .NET 10 backend with SQLite, GitHub Actions deployment configured.
