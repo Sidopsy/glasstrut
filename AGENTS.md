@@ -63,4 +63,4 @@ dotnet test
 
 ## Current status
 
-Phase 1 (Foundation) complete. Frontend skeleton with HTMX + PWA, .NET 10 backend with SQLite, GitHub Actions deployment configured.
+Phase 1 (Foundation) complete. Phase 2 (Authentication) complete. ASP.NET Core Identity + JWT auth, register/login endpoints, frontend login/register forms with token storage.

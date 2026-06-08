@@ -8,9 +8,9 @@
 - [x] Set up database schema (SQLite / local DB)
 
 ## Phase 2 — Authentication
-- [ ] User registration (email + password)
-- [ ] Login / logout
-- [ ] Session management / token handling
+- [x] User registration (email + password)
+- [x] Login / logout
+- [x] Session management / token handling (JWT)
 
 ## Phase 3 — Families
 - [ ] Create family
