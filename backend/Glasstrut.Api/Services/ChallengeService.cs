@@ -168,7 +168,14 @@ public class ChallengeService : IChallengeService
         }
         else
         {
-            query = query.Where(c => c.CreatedById == userId && c.Type == "SelfOnly");
+            var userFamilyIds = await _db.FamilyMembers
+                .Where(m => m.UserId == userId)
+                .Select(m => m.FamilyId)
+                .ToListAsync();
+
+            query = query.Where(c =>
+                (c.Type == "SelfOnly" && c.CreatedById == userId) ||
+                (c.Type != "SelfOnly" && c.FamilyId != null && userFamilyIds.Contains(c.FamilyId.Value)));
         }
 
         return await query.OrderByDescending(c => c.CreatedAt)

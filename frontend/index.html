@@ -63,10 +63,19 @@
 
       <hr>
 
-      <h2>Create Personal Challenge</h2>
+      <h2>Create Challenge</h2>
       <form id="create-challenge-form">
         <input type="text" id="challenge-title" placeholder="Challenge title" required>
         <input type="text" id="challenge-description" placeholder="Description">
+        <label>Type:
+          <select id="challenge-type">
+            <option value="SelfOnly">Personal Challenge</option>
+            <option value="FamilyWide">Family Challenge</option>
+          </select>
+        </label>
+        <label id="family-select-group" style="display:none">Family:
+          <select id="challenge-family"><option value="">Select a family...</option></select>
+        </label>
         <input type="text" id="challenge-goals" placeholder="Goals (comma-separated)">
         <input type="text" id="challenge-prizes" placeholder="Prizes (comma-separated)">
         <input type="text" id="challenge-currency" placeholder="Currency name (optional, e.g. Ice Cream Points)">

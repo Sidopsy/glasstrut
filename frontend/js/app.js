@@ -50,6 +50,15 @@ function showAuth() {
 
 function logout() {
   localStorage.removeItem("token");
+  currentChallengeId = null;
+  currentMemberId = null;
+  document.getElementById("family-list").innerHTML = "";
+  document.getElementById("challenge-list").innerHTML = "";
+  document.getElementById("achievement-list").innerHTML = "<p>No achievements yet.</p>";
+  document.getElementById("achievement-count").textContent = "0";
+  document.getElementById("dashboard-stats").innerHTML = "";
+  document.getElementById("challenge-progress").innerHTML = "";
+  document.getElementById("family-detail").innerHTML = "";
   showAuth();
 }
 
@@ -139,16 +148,25 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  document.getElementById("challenge-type").addEventListener("change", () => {
+    const type = document.getElementById("challenge-type").value;
+    document.getElementById("family-select-group").style.display = type === "SelfOnly" ? "none" : "block";
+    document.getElementById("challenge-family").required = type !== "SelfOnly";
+  });
+
   document.getElementById("create-challenge-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const title = document.getElementById("challenge-title").value;
     const description = document.getElementById("challenge-description").value;
+    const type = document.getElementById("challenge-type").value;
+    const familyId = type !== "SelfOnly" ? document.getElementById("challenge-family").value : null;
+    if (type !== "SelfOnly" && !familyId) { alert("Please select a family."); return; }
     const goals = document.getElementById("challenge-goals").value.split(",").map(s => s.trim()).filter(Boolean);
     const prizes = document.getElementById("challenge-prizes").value.split(",").map(s => s.trim()).filter(Boolean);
     const currencyName = document.getElementById("challenge-currency").value.trim();
 
     const body = {
-      title, description, type: "SelfOnly",
+      title, description, type, familyId,
       goals: goals.map(g => ({
         description: g,
         type: "Achievement",
@@ -272,6 +290,15 @@ async function loadFamilies() {
       <small>Code: ${escapeHtml(f.inviteCode)} &middot; ${f.members.length} members</small>
     </div>
   `).join("");
+
+  // Populate family selector for challenge creation
+  const familySelect = document.getElementById("challenge-family");
+  if (familySelect) {
+    const currentValue = familySelect.value;
+    familySelect.innerHTML = '<option value="">Select a family...</option>' +
+      families.map(f => `<option value="${f.id}">${escapeHtml(f.name)}</option>`).join("");
+    if (currentValue) familySelect.value = currentValue;
+  }
 }
 
 async function loadFamilyDetail(familyId) {
