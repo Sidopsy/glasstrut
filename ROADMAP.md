@@ -27,9 +27,9 @@
 - [ ] Goal point values + challenge currency (e.g., "Ice Cream Points")
 
 ## Phase 5 — Goals & Achievements
-- [ ] Goal completion tracking
-- [ ] Achievement system
-- [ ] Achievement display
+- [x] Goal completion tracking
+- [x] Achievement system
+- [x] Achievement display
 
 ## Phase 6 — Progress & Dashboard
 - [ ] Challenge progress views

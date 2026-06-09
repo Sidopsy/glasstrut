@@ -12,6 +12,9 @@ public class AppDbContext : IdentityDbContext<User>
     public DbSet<ChallengeGoal> ChallengeGoals => Set<ChallengeGoal>();
     public DbSet<ChallengePrize> ChallengePrizes => Set<ChallengePrize>();
     public DbSet<ChallengeTarget> ChallengeTargets => Set<ChallengeTarget>();
+    public DbSet<GoalProgress> GoalProgresses => Set<GoalProgress>();
+    public DbSet<Achievement> Achievements => Set<Achievement>();
+    public DbSet<UserAchievement> UserAchievements => Set<UserAchievement>();
 
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
@@ -80,6 +83,43 @@ public class AppDbContext : IdentityDbContext<User>
             entity.HasOne(e => e.Challenge)
                   .WithMany(c => c.Targets)
                   .HasForeignKey(e => e.ChallengeId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.User)
+                  .WithMany()
+                  .HasForeignKey(e => e.UserId)
+                  .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        builder.Entity<GoalProgress>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.ChallengeGoalId, e.UserId }).IsUnique();
+            entity.HasOne(e => e.Goal)
+                  .WithMany()
+                  .HasForeignKey(e => e.ChallengeGoalId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.User)
+                  .WithMany()
+                  .HasForeignKey(e => e.UserId)
+                  .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        builder.Entity<Achievement>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasOne(e => e.Challenge)
+                  .WithMany()
+                  .HasForeignKey(e => e.ChallengeId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<UserAchievement>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.AchievementId, e.UserId }).IsUnique();
+            entity.HasOne(e => e.Achievement)
+                  .WithMany(a => a.UserAchievements)
+                  .HasForeignKey(e => e.AchievementId)
                   .OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(e => e.User)
                   .WithMany()

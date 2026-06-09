@@ -41,6 +41,7 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IFamilyService, FamilyService>();
 builder.Services.AddScoped<IChallengeService, ChallengeService>();
+builder.Services.AddScoped<IGoalService, GoalService>();
 builder.Services.AddAuthorization();
 
 builder.Services.AddOpenApi();
@@ -81,6 +82,7 @@ app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
 app.MapAuthEndpoints();
 app.MapFamilyEndpoints();
 app.MapChallengeEndpoints();
+app.MapGoalEndpoints();
 
 app.Run();
 

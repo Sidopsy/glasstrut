@@ -27,6 +27,7 @@ function showDashboard(email) {
   document.getElementById("user-email").textContent = email;
   loadFamilies();
   loadChallenges();
+  loadAchievements();
 }
 
 function showAuth() {
@@ -167,7 +168,7 @@ async function loadChallenges() {
     return;
   }
   list.innerHTML = challenges.map(c => `
-    <div class="challenge-card">
+    <div class="challenge-card" onclick="showProgress('${c.id}')">
       <strong>${escapeHtml(c.title)}</strong>
       ${c.currencyName ? `<span class="badge">${escapeHtml(c.currencyName)}</span>` : ""}
       <p>${escapeHtml(c.description)}</p>
@@ -182,6 +183,7 @@ async function loadChallenges() {
         if (p.cost != null) s += " (cost: " + p.cost + ")";
         return s;
       }).join(", ")}</p>` : ""}
+      <small class="click-hint">Click to update progress</small>
     </div>
   `).join("");
 }
@@ -238,4 +240,84 @@ function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str;
   return div.innerHTML;
+}
+
+async function showProgress(challengeId) {
+  const res = await fetch(API + "/api/challenges/" + challengeId + "/progress", {
+    headers: { ...authHeaders() },
+  });
+  if (!res.ok) return;
+  const data = await res.json();
+  const container = document.getElementById("challenge-progress");
+
+  let html = `<div class="progress-panel"><h3>Progress</h3><button onclick="closeProgress()">Close</button>`;
+  for (const g of data.progress) {
+    const pct = g.targetValue ? Math.round((g.currentValue / g.targetValue) * 100) : 0;
+    html += `
+      <div class="goal-progress">
+        <strong>${escapeHtml(g.goalDescription)}</strong>
+        ${g.targetValue != null ? `: ${g.currentValue} / ${g.targetValue} ${g.unit || ""}` : ""}
+        ${g.isCompleted ? " ✅" : ""}
+        ${g.targetValue ? `<div class="bar"><div class="bar-fill" style="width:${Math.min(pct, 100)}%"></div></div>` : ""}
+        ${!g.isCompleted ? `
+          <form onsubmit="recordProgress('${challengeId}', '${g.goalId}', event)">
+            <input type="number" step="any" placeholder="Value" required>
+            <button type="submit">Update</button>
+          </form>
+        ` : ""}
+      </div>
+    `;
+  }
+  if (data.achievements.length) {
+    html += `<h4>Achievements</h4>`;
+    for (const a of data.achievements) {
+      html += `<div class="achievement">${a.unlockedAt ? "🏆" : "🔒"} ${escapeHtml(a.title)}${a.unlockedAt ? " — " + new Date(a.unlockedAt).toLocaleDateString() : ""}</div>`;
+    }
+  }
+  html += `</div>`;
+  container.innerHTML = html;
+  container.scrollIntoView({ behavior: "smooth" });
+}
+
+function closeProgress() {
+  document.getElementById("challenge-progress").innerHTML = "";
+}
+
+async function recordProgress(challengeId, goalId, event) {
+  event.preventDefault();
+  const input = event.target.querySelector("input");
+  const value = parseFloat(input.value);
+  if (isNaN(value)) return;
+
+  const res = await fetch(API + `/api/challenges/${challengeId}/goals/${goalId}/progress`, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ currentValue: value }),
+  });
+  if (res.ok) {
+    showProgress(challengeId);
+    loadAchievements();
+    loadChallenges();
+  } else {
+    const data = await res.json();
+    alert(data.error || "Failed to record progress");
+  }
+}
+
+async function loadAchievements() {
+  const res = await fetch(API + "/api/achievements", {
+    headers: { ...authHeaders() },
+  });
+  if (!res.ok) return;
+  const achievements = await res.json();
+  const list = document.getElementById("achievement-list");
+  if (achievements.length === 0) {
+    list.innerHTML = "<p>No achievements yet. Complete goals to unlock them!</p>";
+    return;
+  }
+  list.innerHTML = achievements.map(a => `
+    <div class="achievement">
+      🏆 ${escapeHtml(a.title)} — unlocked ${new Date(a.unlockedAt).toLocaleDateString()}
+    </div>
+  `).join("");
 }
