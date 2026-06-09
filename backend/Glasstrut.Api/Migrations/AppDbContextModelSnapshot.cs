@@ -93,6 +93,41 @@ namespace Glasstrut.Api.Migrations
                     b.ToTable("Challenges");
                 });
 
+            modelBuilder.Entity("Glasstrut.Api.Models.ChallengeActivity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ChallengeGoalId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ChallengeId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("PointValue")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Unit")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChallengeGoalId");
+
+                    b.HasIndex("ChallengeId");
+
+                    b.ToTable("ChallengeActivities");
+                });
+
             modelBuilder.Entity("Glasstrut.Api.Models.ChallengeGoal", b =>
                 {
                     b.Property<Guid>("Id")
@@ -109,10 +144,11 @@ namespace Glasstrut.Api.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<decimal?>("PointValue")
+                    b.Property<decimal?>("TargetValue")
                         .HasColumnType("TEXT");
 
-                    b.Property<decimal?>("TargetValue")
+                    b.Property<string>("Type")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Unit")
@@ -270,6 +306,81 @@ namespace Glasstrut.Api.Migrations
                         .IsUnique();
 
                     b.ToTable("GoalProgresses");
+                });
+
+            modelBuilder.Entity("Glasstrut.Api.Models.PrizeClaim", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ChallengeId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ChallengePrizeId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("ClaimedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChallengeId");
+
+                    b.HasIndex("ChallengePrizeId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("PrizeClaims");
+                });
+
+            modelBuilder.Entity("Glasstrut.Api.Models.ProgressEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ChallengeActivityId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("GoalProgressId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("RecordedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Unit")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChallengeActivityId");
+
+                    b.HasIndex("GoalProgressId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("ProgressEntries");
                 });
 
             modelBuilder.Entity("Glasstrut.Api.Models.User", b =>
@@ -518,6 +629,25 @@ namespace Glasstrut.Api.Migrations
                     b.Navigation("Family");
                 });
 
+            modelBuilder.Entity("Glasstrut.Api.Models.ChallengeActivity", b =>
+                {
+                    b.HasOne("Glasstrut.Api.Models.ChallengeGoal", "Goal")
+                        .WithMany("Activities")
+                        .HasForeignKey("ChallengeGoalId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Glasstrut.Api.Models.Challenge", "Challenge")
+                        .WithMany("Activities")
+                        .HasForeignKey("ChallengeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Challenge");
+
+                    b.Navigation("Goal");
+                });
+
             modelBuilder.Entity("Glasstrut.Api.Models.ChallengeGoal", b =>
                 {
                     b.HasOne("Glasstrut.Api.Models.Challenge", "Challenge")
@@ -608,6 +738,56 @@ namespace Glasstrut.Api.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Glasstrut.Api.Models.PrizeClaim", b =>
+                {
+                    b.HasOne("Glasstrut.Api.Models.Challenge", "Challenge")
+                        .WithMany()
+                        .HasForeignKey("ChallengeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Glasstrut.Api.Models.ChallengePrize", "Prize")
+                        .WithMany()
+                        .HasForeignKey("ChallengePrizeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Glasstrut.Api.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Challenge");
+
+                    b.Navigation("Prize");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Glasstrut.Api.Models.ProgressEntry", b =>
+                {
+                    b.HasOne("Glasstrut.Api.Models.ChallengeActivity", "Activity")
+                        .WithMany()
+                        .HasForeignKey("ChallengeActivityId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Glasstrut.Api.Models.GoalProgress", null)
+                        .WithMany("ProgressEntries")
+                        .HasForeignKey("GoalProgressId");
+
+                    b.HasOne("Glasstrut.Api.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Activity");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("Glasstrut.Api.Models.UserAchievement", b =>
                 {
                     b.HasOne("Glasstrut.Api.Models.Achievement", "Achievement")
@@ -685,6 +865,8 @@ namespace Glasstrut.Api.Migrations
 
             modelBuilder.Entity("Glasstrut.Api.Models.Challenge", b =>
                 {
+                    b.Navigation("Activities");
+
                     b.Navigation("Goals");
 
                     b.Navigation("Prizes");
@@ -692,9 +874,19 @@ namespace Glasstrut.Api.Migrations
                     b.Navigation("Targets");
                 });
 
+            modelBuilder.Entity("Glasstrut.Api.Models.ChallengeGoal", b =>
+                {
+                    b.Navigation("Activities");
+                });
+
             modelBuilder.Entity("Glasstrut.Api.Models.Family", b =>
                 {
                     b.Navigation("Members");
+                });
+
+            modelBuilder.Entity("Glasstrut.Api.Models.GoalProgress", b =>
+                {
+                    b.Navigation("ProgressEntries");
                 });
 #pragma warning restore 612, 618
         }

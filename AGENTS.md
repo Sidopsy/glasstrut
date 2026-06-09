@@ -64,11 +64,19 @@ dotnet test
 
 ## Current status
 
-Phase 1 (Foundation) complete. Phase 2 (Authentication) complete. Phase 3 (Families) complete. Phase 4 (Challenges) complete — including goal target values/units, prize costs, and challenge currency/points.
+Phase 1 (Foundation) complete. Phase 2 (Authentication) complete. Phase 3 (Families) complete. Phase 4 (Challenges) complete. Phase 5 (Goals & Achievements) complete. Phase 6 (Progress & Dashboard) mostly complete. Phase 7 (QR Reward Redemption) complete.
 
-Phase 5 (Goals & Achievements) complete.
+- QR redemption: server-side generation with QRCoder, token-based URLs
+- `POST /api/challenges/{id}/prizes/{prizeId}/generate-redemption` — creates token + returns QR URL
+- `GET /api/redeem/{token}/qr` — returns QR code PNG image (unauthenticated, for printing)
+- `POST /api/redeem/{token}` — redeems prize, deducts points from currency goal balance
+- Frontend: modal with printable reward coupon card (large QR + prize details, print button)
 
-- Goal progress tracking per user per goal with auto-completion when target reached
-- Achievement system: auto-awarded on goal completion, per-challenge achievements
-- Achievement display: challenge progress panel shows goals + achievements, global achievements list
-- Tests: 23 passing
+- Activities as first-class concepts: each goal has one or more activities (named modes of achieving, e.g. "Running" → "km", "Mow lawn" → "times")
+- Goal types: Achievement (target-based) or Currency (point accumulation via activities)
+- Activity-based progress logging: log an activity with amount, system calculates `delta = amount * activity.PointValue`
+- Goal progress auto-completes when `CurrentValue >= TargetValue`; achievements auto-awarded on completion
+- Multi-user progress view: family challenges show tabs per member with individual progress bars
+- Activity log: `GET /api/challenges/{id}/activity-log` returns recent entries with user, activity, amount, notes
+- Dashboard stats row shows active challenge count and goal completion summary
+- Challenge cards show completion summary + SelfOnly/Family badge + currency badge

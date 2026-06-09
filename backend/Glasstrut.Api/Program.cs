@@ -38,10 +38,12 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IFamilyService, FamilyService>();
 builder.Services.AddScoped<IChallengeService, ChallengeService>();
 builder.Services.AddScoped<IGoalService, GoalService>();
+builder.Services.AddScoped<IRedeemService, RedeemService>();
 builder.Services.AddAuthorization();
 
 builder.Services.AddOpenApi();
@@ -83,6 +85,7 @@ app.MapAuthEndpoints();
 app.MapFamilyEndpoints();
 app.MapChallengeEndpoints();
 app.MapGoalEndpoints();
+app.MapRedeemEndpoints();
 
 app.Run();
 

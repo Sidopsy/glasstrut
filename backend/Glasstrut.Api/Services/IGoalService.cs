@@ -4,7 +4,9 @@ namespace Glasstrut.Api.Services;
 
 public interface IGoalService
 {
-    Task<GoalProgressDto> RecordProgressAsync(string userId, Guid challengeGoalId, RecordProgressRequest request);
+    Task<GoalProgressDto> LogActivityAsync(string userId, Guid challengeId, Guid activityId, LogProgressRequest request);
     Task<ProgressAndAchievementsDto> GetChallengeProgressAsync(string userId, Guid challengeId);
+    Task<ChallengeProgressMembersDto> GetChallengeProgressMembersAsync(string userId, Guid challengeId);
+    Task<List<ActivityLogEntryDto>> GetActivityLogAsync(string userId, Guid challengeId, int count = 20);
     Task<List<AchievementDto>> GetUserAchievementsAsync(string userId);
 }

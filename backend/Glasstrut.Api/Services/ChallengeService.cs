@@ -45,16 +45,37 @@ public class ChallengeService : IChallengeService
         {
             foreach (var goalDto in request.Goals)
             {
-                challenge.Goals.Add(new ChallengeGoal
+                var goal = new ChallengeGoal
                 {
                     Id = Guid.NewGuid(),
                     ChallengeId = challenge.Id,
                     Description = goalDto.Description,
-                    TargetValue = goalDto.TargetValue,
+                    Type = goalDto.Type,
+                    TargetValue = goalDto.Type == "Achievement" ? goalDto.TargetValue : null,
                     Unit = goalDto.Unit,
-                    PointValue = goalDto.PointValue,
                     CreatedAt = DateTime.UtcNow,
-                });
+                };
+
+                if (goalDto.Activities != null)
+                {
+                    foreach (var activityDto in goalDto.Activities)
+                    {
+                        var activity = new ChallengeActivity
+                        {
+                            Id = Guid.NewGuid(),
+                            ChallengeId = challenge.Id,
+                            ChallengeGoalId = goal.Id,
+                            Name = activityDto.Name,
+                            Unit = activityDto.Unit,
+                            PointValue = activityDto.PointValue,
+                            CreatedAt = DateTime.UtcNow,
+                        };
+                        goal.Activities.Add(activity);
+                        challenge.Activities.Add(activity);
+                    }
+                }
+
+                challenge.Goals.Add(goal);
             }
         }
 
@@ -106,6 +127,7 @@ public class ChallengeService : IChallengeService
     {
         var challenge = await _db.Challenges
             .Include(c => c.Goals)
+                .ThenInclude(g => g.Activities)
             .Include(c => c.Prizes)
             .Include(c => c.Targets)
             .FirstOrDefaultAsync(c => c.Id == challengeId)
@@ -130,6 +152,7 @@ public class ChallengeService : IChallengeService
     {
         var query = _db.Challenges
             .Include(c => c.Goals)
+                .ThenInclude(g => g.Activities)
             .Include(c => c.Prizes)
             .Include(c => c.Targets)
             .AsQueryable();
@@ -158,7 +181,12 @@ public class ChallengeService : IChallengeService
         return new ChallengeDto(
             c.Id, c.Title, c.Description, c.Type, c.FamilyId,
             c.StartDate, c.EndDate, c.CreatedAt, c.CurrencyName,
-            c.Goals.Select(g => new ChallengeGoalDto(g.Id, g.Description, g.TargetValue, g.Unit, g.PointValue)).ToList(),
+            c.Goals.Select(g => new ChallengeGoalDto(
+                g.Id, g.Description, g.Type, g.TargetValue, g.Unit,
+                g.Activities.Select(a => new ChallengeActivityDto(
+                    a.Id, a.Name, a.Unit, a.PointValue
+                )).ToList()
+            )).ToList(),
             c.Prizes.Select(p => new ChallengePrizeDto(p.Id, p.Description, p.Cost)).ToList(),
             c.Targets.Select(t => t.UserId).ToList()
         );

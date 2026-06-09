@@ -47,7 +47,17 @@ public class ChallengeEndpointTests : IClassFixture<CustomWebApplicationFactory>
             title = "Read 10 Books",
             description = "Read 10 books this month",
             type = "SelfOnly",
-            goals = new[] { new { description = "Book 1" }, new { description = "Book 2" } },
+            goals = new[] {
+                new {
+                    description = "Read books",
+                    type = "Achievement",
+                    targetValue = 10m,
+                    unit = "books",
+                    activities = new[] {
+                        new { name = "Reading", unit = "books", pointValue = 1m }
+                    }
+                }
+            },
             prizes = new[] { new { description = "Ice cream" } }
         };
 
@@ -58,8 +68,10 @@ public class ChallengeEndpointTests : IClassFixture<CustomWebApplicationFactory>
         Assert.NotNull(challenge);
         Assert.Equal("Read 10 Books", challenge.Title);
         Assert.Equal("SelfOnly", challenge.Type);
-        Assert.Equal(2, challenge.Goals.Count);
+        Assert.Single(challenge.Goals);
         Assert.Single(challenge.Prizes);
+        Assert.Single(challenge.Goals[0].Activities);
+        Assert.Equal("Reading", challenge.Goals[0].Activities[0].Name);
     }
 
     [Fact]
@@ -77,9 +89,33 @@ public class ChallengeEndpointTests : IClassFixture<CustomWebApplicationFactory>
             endDate = "2026-08-31T00:00:00Z",
             goals = new[]
             {
-                new { description = "Bronze", targetValue = 100m, unit = "km", pointValue = 10m },
-                new { description = "Silver", targetValue = 150m, unit = "km", pointValue = 20m },
-                new { description = "Gold", targetValue = 200m, unit = "km", pointValue = 30m },
+                new {
+                    description = "Bronze",
+                    type = "Achievement",
+                    targetValue = 100m,
+                    unit = "km",
+                    activities = new[] {
+                        new { name = "Running", unit = "km", pointValue = 1m }
+                    }
+                },
+                new {
+                    description = "Silver",
+                    type = "Achievement",
+                    targetValue = 150m,
+                    unit = "km",
+                    activities = new[] {
+                        new { name = "Running", unit = "km", pointValue = 1m }
+                    }
+                },
+                new {
+                    description = "Gold",
+                    type = "Achievement",
+                    targetValue = 200m,
+                    unit = "km",
+                    activities = new[] {
+                        new { name = "Running", unit = "km", pointValue = 1m }
+                    }
+                },
             },
             prizes = new[]
             {
@@ -94,9 +130,12 @@ public class ChallengeEndpointTests : IClassFixture<CustomWebApplicationFactory>
         Assert.NotNull(challenge);
         Assert.Equal(3, challenge.Goals.Count);
         Assert.Equal("Bronze", challenge.Goals[0].Description);
+        Assert.Equal("Achievement", challenge.Goals[0].Type);
         Assert.Equal(100, challenge.Goals[0].TargetValue);
         Assert.Equal("km", challenge.Goals[0].Unit);
-        Assert.Equal(10, challenge.Goals[0].PointValue);
+        Assert.Single(challenge.Goals[0].Activities);
+        Assert.Equal("Running", challenge.Goals[0].Activities[0].Name);
+        Assert.Equal(1, challenge.Goals[0].Activities[0].PointValue);
         Assert.Single(challenge.Prizes);
         Assert.Equal(50, challenge.Prizes[0].Cost);
     }
@@ -115,8 +154,14 @@ public class ChallengeEndpointTests : IClassFixture<CustomWebApplicationFactory>
             currencyName = "Ice Cream Points",
             goals = new[]
             {
-                new { description = "Clean room", pointValue = 5m },
-                new { description = "Wash dishes", pointValue = 3m },
+                new {
+                    description = "Earn Ice Cream Points",
+                    type = "Currency",
+                    activities = new[] {
+                        new { name = "Clean room", unit = "times", pointValue = 5m },
+                        new { name = "Wash dishes", unit = "times", pointValue = 3m },
+                    }
+                },
             },
             prizes = new[]
             {
@@ -131,8 +176,11 @@ public class ChallengeEndpointTests : IClassFixture<CustomWebApplicationFactory>
         var challenge = await response.Content.ReadFromJsonAsync<ChallengeResponse>();
         Assert.NotNull(challenge);
         Assert.Equal("Ice Cream Points", challenge.CurrencyName);
-        Assert.Equal(2, challenge.Goals.Count);
-        Assert.Equal(5, challenge.Goals[0].PointValue);
+        Assert.Single(challenge.Goals);
+        Assert.Equal("Currency", challenge.Goals[0].Type);
+        Assert.Equal(2, challenge.Goals[0].Activities.Count);
+        Assert.Equal(5, challenge.Goals[0].Activities[0].PointValue);
+        Assert.Equal("Clean room", challenge.Goals[0].Activities[0].Name);
         Assert.Equal(2, challenge.Prizes.Count);
         Assert.Equal(10, challenge.Prizes[1].Cost);
     }
@@ -149,7 +197,17 @@ public class ChallengeEndpointTests : IClassFixture<CustomWebApplicationFactory>
             description = "Clean the house together",
             type = "FamilyWide",
             familyId,
-            goals = new[] { new { description = "Living room" }, new { description = "Kitchen" } },
+            goals = new[] {
+                new {
+                    description = "Clean room",
+                    type = "Achievement",
+                    targetValue = 1m,
+                    unit = "room",
+                    activities = new[] {
+                        new { name = "Cleaning", unit = "room", pointValue = 1m }
+                    }
+                }
+            },
             prizes = new[] { new { description = "Pizza night" } }
         };
 
@@ -257,7 +315,22 @@ public class ChallengeEndpointTests : IClassFixture<CustomWebApplicationFactory>
         var token = await RegisterAndGetTokenAsync();
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-        var body = new { title = "My Challenge", description = "Do it", type = "SelfOnly" };
+        var body = new {
+            title = "My Challenge",
+            description = "Do it",
+            type = "SelfOnly",
+            goals = new[] {
+                new {
+                    description = "Task",
+                    type = "Achievement",
+                    targetValue = 1m,
+                    unit = "task",
+                    activities = new[] {
+                        new { name = "Do task", unit = "task", pointValue = 1m }
+                    }
+                }
+            }
+        };
         await _client.PostAsJsonAsync("/api/challenges", body);
 
         var response = await _client.GetAsync("/api/challenges");
@@ -270,9 +343,11 @@ public class ChallengeEndpointTests : IClassFixture<CustomWebApplicationFactory>
     private record AuthResponse(string Token, string Email);
     private record FamilyResponse(Guid Id, string Name, string InviteCode, DateTime CreatedAt, List<MemberResponse> Members);
     private record MemberResponse(string UserId, string Email, string Role);
+    private record ActivityResponse(Guid Id, string Name, string Unit, decimal PointValue);
     private record ChallengeResponse(Guid Id, string Title, string Description, string Type, Guid? FamilyId,
         DateTime? StartDate, DateTime? EndDate, DateTime CreatedAt, string? CurrencyName,
         List<GoalResponse> Goals, List<PrizeResponse> Prizes, List<string> TargetUserIds);
-    private record GoalResponse(Guid Id, string Description, decimal? TargetValue, string? Unit, decimal? PointValue);
+    private record GoalResponse(Guid Id, string Description, string Type, decimal? TargetValue, string? Unit,
+        List<ActivityResponse> Activities);
     private record PrizeResponse(Guid Id, string Description, decimal? Cost);
 }

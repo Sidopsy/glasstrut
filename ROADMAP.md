@@ -20,26 +20,30 @@
 ## Phase 4 — Challenges
 - [x] Create challenge (family-wide, self-only, targeted)
 - [x] Optional time constraints
-- [x] Multiple goals per challenge
+- [x] Multiple goals per challenge ("prime directives")
 - [x] Multiple prizes per challenge
-- [ ] Goal target values + units (e.g., "100 km", "5 times")
-- [ ] Prize costs / point values (e.g., "costs 10 points")
-- [ ] Goal point values + challenge currency (e.g., "Ice Cream Points")
+- [x] Activities as modes of achieving goals (running, mowing, etc.)
+- [x] Goal types: Achievement (target-based) or Currency (point accumulation)
+- [x] Activity-based progress logging (log what you did, system calculates progress)
 
 ## Phase 5 — Goals & Achievements
 - [x] Goal completion tracking
 - [x] Achievement system
 - [x] Achievement display
 
-## Phase 6 — Progress & Dashboard
-- [ ] Challenge progress views
-- [ ] User dashboard
+## Phase 6 — Progress & Dashboard (complete)
+- [x] Challenge progress views (member tabs for family challenges, activity history log)
+- [x] User dashboard (stats row, challenge summaries, achievement counts)
+- [x] Activity log endpoint + frontend display (+ `renderActivityLog`, `renderAchievements`)
+- [x] Multi-user progress endpoint (`GET /api/challenges/{id}/progress/members`)
 - [ ] Notifications (optional)
 
-## Phase 7 — QR Reward Redemption
-- [ ] QR code generation for prizes
-- [ ] Camera-based scanning / verification
-- [ ] Point deduction + prize fulfillment
+## Phase 7 — QR Reward Redemption (complete)
+- [x] QR code generation for prizes (server-side with QRCoder)
+- [x] Static QR encodes challenge+prize IDs (`{baseUrl}/?claim=challengeId:prizeId`)
+- [x] Point deduction + prize fulfillment (deducts from first Currency goal's progress)
+- [x] Printable reward coupon view (opens print dialog with styled layout)
+- [x] Redemption history per challenge (`GET /api/challenges/{id}/claims`)
 
 ## Phase 8 — Polish
 - [ ] Styling (Tailwind / CSS)

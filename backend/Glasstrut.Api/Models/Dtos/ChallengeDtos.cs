@@ -1,10 +1,17 @@
 namespace Glasstrut.Api.Models.Dtos;
 
+public record CreateActivityDto(
+    string Name,
+    string Unit,
+    decimal PointValue
+);
+
 public record CreateGoalDto(
     string Description,
+    string Type = "Achievement",
     decimal? TargetValue = null,
     string? Unit = null,
-    decimal? PointValue = null
+    List<CreateActivityDto>? Activities = null
 );
 
 public record CreatePrizeDto(
@@ -40,12 +47,20 @@ public record ChallengeDto(
     List<string> TargetUserIds
 );
 
+public record ChallengeActivityDto(
+    Guid Id,
+    string Name,
+    string Unit,
+    decimal PointValue
+);
+
 public record ChallengeGoalDto(
     Guid Id,
     string Description,
+    string Type,
     decimal? TargetValue,
     string? Unit,
-    decimal? PointValue
+    List<ChallengeActivityDto> Activities
 );
 
 public record ChallengePrizeDto(

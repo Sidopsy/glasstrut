@@ -27,7 +27,7 @@ public class GoalEndpointTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
-    public async Task RecordProgress_And_CompleteGoal()
+    public async Task LogActivity_And_CompleteGoal()
     {
         var token = await RegisterAndGetTokenAsync();
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -37,23 +37,35 @@ public class GoalEndpointTests : IClassFixture<CustomWebApplicationFactory>
             title = "Run 100km",
             description = "Training",
             type = "SelfOnly",
-            goals = new[] { new { description = "Run", targetValue = 100m, unit = "km" } }
+            goals = new[] {
+                new {
+                    description = "Run 100km",
+                    type = "Achievement",
+                    targetValue = 100m,
+                    unit = "km",
+                    activities = new[] {
+                        new { name = "Running", unit = "km", pointValue = 1m }
+                    }
+                }
+            }
         };
         var createResponse = await _client.PostAsJsonAsync("/api/challenges", body);
         var challenge = await createResponse.Content.ReadFromJsonAsync<ChallengeResponse>();
-        var goalId = challenge!.Goals[0].Id;
+        var activityId = challenge!.Goals[0].Activities[0].Id;
 
-        var progressResponse = await _client.PostAsJsonAsync(
-            $"/api/challenges/{challenge.Id}/goals/{goalId}/progress",
-            new { currentValue = 50m });
-        progressResponse.EnsureSuccessStatusCode();
-        var progress = await progressResponse.Content.ReadFromJsonAsync<GoalProgressResponse>();
+        // Log 50km — pointValue=1, so delta = 50*1 = 50
+        var logResponse = await _client.PostAsJsonAsync(
+            $"/api/challenges/{challenge.Id}/activities/{activityId}/log",
+            new { amount = 50m });
+        logResponse.EnsureSuccessStatusCode();
+        var progress = await logResponse.Content.ReadFromJsonAsync<GoalProgressResponse>();
         Assert.Equal(50, progress!.CurrentValue);
         Assert.False(progress.IsCompleted);
 
+        // Log another 50km — total = 100, goal completes
         var completeResponse = await _client.PostAsJsonAsync(
-            $"/api/challenges/{challenge.Id}/goals/{goalId}/progress",
-            new { currentValue = 100m });
+            $"/api/challenges/{challenge.Id}/activities/{activityId}/log",
+            new { amount = 50m });
         completeResponse.EnsureSuccessStatusCode();
         var completed = await completeResponse.Content.ReadFromJsonAsync<GoalProgressResponse>();
         Assert.Equal(100, completed!.CurrentValue);
@@ -74,8 +86,24 @@ public class GoalEndpointTests : IClassFixture<CustomWebApplicationFactory>
             type = "SelfOnly",
             goals = new[]
             {
-                new { description = "Bronze", targetValue = 100m, unit = "km" },
-                new { description = "Silver", targetValue = 150m, unit = "km" },
+                new {
+                    description = "Bronze",
+                    type = "Achievement",
+                    targetValue = 100m,
+                    unit = "km",
+                    activities = new[] {
+                        new { name = "Running", unit = "km", pointValue = 1m }
+                    }
+                },
+                new {
+                    description = "Silver",
+                    type = "Achievement",
+                    targetValue = 150m,
+                    unit = "km",
+                    activities = new[] {
+                        new { name = "Running", unit = "km", pointValue = 1m }
+                    }
+                },
             }
         };
         var createResponse = await _client.PostAsJsonAsync("/api/challenges", body);
@@ -101,15 +129,25 @@ public class GoalEndpointTests : IClassFixture<CustomWebApplicationFactory>
             title = "Read Books",
             description = "Read 10 books",
             type = "SelfOnly",
-            goals = new[] { new { description = "Read", targetValue = 10m, unit = "books" } }
+            goals = new[] {
+                new {
+                    description = "Read 10 books",
+                    type = "Achievement",
+                    targetValue = 10m,
+                    unit = "books",
+                    activities = new[] {
+                        new { name = "Reading", unit = "books", pointValue = 1m }
+                    }
+                }
+            }
         };
         var createResponse = await _client.PostAsJsonAsync("/api/challenges", body);
         var challenge = await createResponse.Content.ReadFromJsonAsync<ChallengeResponse>();
-        var goalId = challenge!.Goals[0].Id;
+        var activityId = challenge!.Goals[0].Activities[0].Id;
 
         await _client.PostAsJsonAsync(
-            $"/api/challenges/{challenge.Id}/goals/{goalId}/progress",
-            new { currentValue = 10m });
+            $"/api/challenges/{challenge.Id}/activities/{activityId}/log",
+            new { amount = 10m });
 
         var achievementsResponse = await _client.GetAsync("/api/achievements");
         achievementsResponse.EnsureSuccessStatusCode();
@@ -120,11 +158,11 @@ public class GoalEndpointTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
-    public async Task RecordProgress_RequiresAuth()
+    public async Task LogProgress_RequiresAuth()
     {
         var response = await _client.PostAsJsonAsync(
-            $"/api/challenges/{Guid.NewGuid()}/goals/{Guid.NewGuid()}/progress",
-            new { currentValue = 10m });
+            $"/api/challenges/{Guid.NewGuid()}/activities/{Guid.NewGuid()}/log",
+            new { amount = 10m });
         Assert.Equal(System.Net.HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
@@ -142,13 +180,15 @@ public class GoalEndpointTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     private record AuthResponse(string Token, string Email);
+    private record ActivityResponse(Guid Id, string Name, string Unit, decimal PointValue);
     private record ChallengeResponse(Guid Id, string Title, string Description, string Type, Guid? FamilyId,
         DateTime? StartDate, DateTime? EndDate, DateTime CreatedAt, string? CurrencyName,
         List<GoalResponse> Goals, List<PrizeResponse> Prizes, List<string> TargetUserIds);
-    private record GoalResponse(Guid Id, string Description, decimal? TargetValue, string? Unit, decimal? PointValue);
+    private record GoalResponse(Guid Id, string Description, string Type, decimal? TargetValue, string? Unit,
+        List<ActivityResponse> Activities);
     private record PrizeResponse(Guid Id, string Description, decimal? Cost);
-    private record GoalProgressResponse(Guid Id, Guid GoalId, string GoalDescription, decimal? TargetValue,
-        string? Unit, decimal CurrentValue, bool IsCompleted, DateTime? CompletedAt);
+    private record GoalProgressResponse(Guid Id, Guid GoalId, string GoalDescription, string GoalType,
+        decimal? TargetValue, string? Unit, decimal CurrentValue, bool IsCompleted, DateTime? CompletedAt);
     private record ProgressResponse(List<GoalProgressResponse> Progress, List<AchievementResponse> Achievements);
     private record AchievementResponse(Guid Id, string Title, string Description, bool IsHidden,
         DateTime CreatedAt, DateTime? UnlockedAt);

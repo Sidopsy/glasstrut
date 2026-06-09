@@ -4,6 +4,9 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("/sw.js");
 }
 
+let currentChallengeId = null;
+let currentMemberId = null;
+
 function authHeaders() {
   const token = localStorage.getItem("token");
   return token ? { "Authorization": "Bearer " + token } : {};
@@ -28,6 +31,16 @@ function showDashboard(email) {
   loadFamilies();
   loadChallenges();
   loadAchievements();
+
+  const params = new URLSearchParams(window.location.search);
+  const claimParam = params.get("claim");
+  if (claimParam) {
+    const parts = claimParam.split(":");
+    if (parts.length === 2) {
+      processRedemption(parts[0], parts[1]);
+    }
+    window.history.replaceState({}, "", window.location.pathname);
+  }
 }
 
 function showAuth() {
@@ -132,12 +145,18 @@ document.addEventListener("DOMContentLoaded", () => {
     const description = document.getElementById("challenge-description").value;
     const goals = document.getElementById("challenge-goals").value.split(",").map(s => s.trim()).filter(Boolean);
     const prizes = document.getElementById("challenge-prizes").value.split(",").map(s => s.trim()).filter(Boolean);
+    const currencyName = document.getElementById("challenge-currency").value.trim();
 
     const body = {
       title, description, type: "SelfOnly",
-      goals: goals.map(g => ({ description: g })),
+      goals: goals.map(g => ({
+        description: g,
+        type: "Achievement",
+        activities: [{ name: g, unit: "times", pointValue: 1 }]
+      })),
       prizes: prizes.map(p => ({ description: p })),
     };
+    if (currencyName) body.currencyName = currencyName;
     const res = await fetch(API + "/api/challenges", {
       method: "POST",
       headers: { ...authHeaders(), "Content-Type": "application/json" },
@@ -148,6 +167,7 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("challenge-description").value = "";
       document.getElementById("challenge-goals").value = "";
       document.getElementById("challenge-prizes").value = "";
+      document.getElementById("challenge-currency").value = "";
       loadChallenges();
     } else {
       const data = await res.json();
@@ -165,27 +185,75 @@ async function loadChallenges() {
   const list = document.getElementById("challenge-list");
   if (challenges.length === 0) {
     list.innerHTML = "<p>No challenges yet.</p>";
+    updateDashboardStats([]);
     return;
   }
-  list.innerHTML = challenges.map(c => `
+
+  // Get progress for each to show summary
+  const progressPromises = challenges.map(async c => {
+    try {
+      const r = await fetch(API + `/api/challenges/${c.id}/progress`, { headers: { ...authHeaders() } });
+      if (!r.ok) return null;
+      return r.json();
+    } catch { return null; }
+  });
+  const progressData = await Promise.all(progressPromises);
+
+  list.innerHTML = challenges.map((c, i) => {
+    const p = progressData[i];
+    const completed = p ? p.progress.filter(g => g.isCompleted).length : 0;
+    const total = p ? p.progress.length : c.goals.length;
+    const hasPrizes = c.prizes && c.prizes.length;
+
+    return `
     <div class="challenge-card" onclick="showProgress('${c.id}')">
-      <strong>${escapeHtml(c.title)}</strong>
-      ${c.currencyName ? `<span class="badge">${escapeHtml(c.currencyName)}</span>` : ""}
+      <div class="challenge-header">
+        <strong>${escapeHtml(c.title)}</strong>
+        <span class="badge ${c.type === 'SelfOnly' ? 'badge-self' : 'badge-family'}">${escapeHtml(c.type)}</span>
+        ${c.currencyName ? `<span class="badge badge-currency">${escapeHtml(c.currencyName)}</span>` : ""}
+      </div>
       <p>${escapeHtml(c.description)}</p>
-      ${c.goals.length ? `<p><strong>Goals:</strong> ${c.goals.map(g => {
+      ${p ? `<div class="challenge-summary">${completed}/${total} goals completed</div>` : ""}
+      ${c.goals.length ? `<p class="goals-preview">${c.goals.map(g => {
         let s = escapeHtml(g.description);
-        if (g.targetValue != null) s += " (" + g.targetValue + (g.unit ? " " + escapeHtml(g.unit) : "") + ")";
-        if (g.pointValue != null) s += " — " + g.pointValue + " pts";
+        if (g.type === "Achievement" && g.targetValue != null) s += " (" + g.targetValue + " " + escapeHtml(g.unit || "") + ")";
+        if (g.activities && g.activities.length) {
+          s += " → " + g.activities.map(a => escapeHtml(a.name) + " (" + a.pointValue + "/" + escapeHtml(a.unit) + ")").join(", ");
+        }
         return s;
-      }).join(", ")}</p>` : ""}
-      ${c.prizes.length ? `<p><strong>Prizes:</strong> ${c.prizes.map(p => {
+      }).join("; ")}</p>` : ""}
+      ${hasPrizes ? `<p class="prizes-preview">🏅 ${c.prizes.map(p => {
         let s = escapeHtml(p.description);
         if (p.cost != null) s += " (cost: " + p.cost + ")";
         return s;
       }).join(", ")}</p>` : ""}
-      <small class="click-hint">Click to update progress</small>
+      <small class="click-hint">Click to view details & log progress</small>
     </div>
-  `).join("");
+  `}).join("");
+
+  updateDashboardStats(challenges, progressData);
+}
+
+function updateDashboardStats(challenges, progressData) {
+  const total = challenges.length;
+  let completedGoals = 0;
+  let totalGoals = 0;
+  let achievements = 0;
+
+  if (progressData) {
+    for (const p of progressData) {
+      if (!p) continue;
+      totalGoals += p.progress.length;
+      completedGoals += p.progress.filter(g => g.isCompleted).length;
+    }
+  }
+
+  const statsDiv = document.getElementById("dashboard-stats");
+  if (!statsDiv) return;
+  statsDiv.innerHTML = `
+    <div class="stat-card"><strong>${total}</strong> Active challenges</div>
+    <div class="stat-card"><strong>${completedGoals}/${totalGoals}</strong> Goals completed</div>
+  `;
 }
 
 async function loadFamilies() {
@@ -243,56 +311,167 @@ function escapeHtml(str) {
 }
 
 async function showProgress(challengeId) {
-  const res = await fetch(API + "/api/challenges/" + challengeId + "/progress", {
+  currentChallengeId = challengeId;
+  currentMemberId = null;
+  const container = document.getElementById("challenge-progress");
+  container.innerHTML = `<div class="progress-panel"><h3>Loading...</h3></div>`;
+  container.scrollIntoView({ behavior: "smooth" });
+
+  // Get challenge details
+  const challengeRes = await fetch(API + "/api/challenges/" + challengeId, {
+    headers: { ...authHeaders() },
+  });
+  if (!challengeRes.ok) return;
+  const challenge = await challengeRes.json();
+
+  const isFamily = challenge.type !== "SelfOnly";
+  let html = `<div class="progress-panel">`;
+  html += `<h3>${escapeHtml(challenge.title)}</h3>`;
+  html += `<button onclick="closeProgress()">Close</button>`;
+  html += `<p>${escapeHtml(challenge.description)}</p>`;
+
+  if (isFamily) {
+    await renderFamilyProgress(challenge, html, container);
+  } else {
+    await renderSelfProgress(challenge, html, container);
+  }
+}
+
+async function renderSelfProgress(challenge, panelHtml, container) {
+  const res = await fetch(API + "/api/challenges/" + challenge.id + "/progress", {
     headers: { ...authHeaders() },
   });
   if (!res.ok) return;
   const data = await res.json();
-  const container = document.getElementById("challenge-progress");
 
-  let html = `<div class="progress-panel"><h3>Progress</h3><button onclick="closeProgress()">Close</button>`;
+  let html = panelHtml;
   for (const g of data.progress) {
     const pct = g.targetValue ? Math.round((g.currentValue / g.targetValue) * 100) : 0;
-    html += `
-      <div class="goal-progress">
-        <strong>${escapeHtml(g.goalDescription)}</strong>
-        ${g.targetValue != null ? `: ${g.currentValue} / ${g.targetValue} ${g.unit || ""}` : ""}
-        ${g.isCompleted ? " ✅" : ""}
-        ${g.targetValue ? `<div class="bar"><div class="bar-fill" style="width:${Math.min(pct, 100)}%"></div></div>` : ""}
-        ${!g.isCompleted ? `
-          <form onsubmit="recordProgress('${challengeId}', '${g.goalId}', event)">
-            <input type="number" step="any" placeholder="Value" required>
-            <button type="submit">Update</button>
-          </form>
-        ` : ""}
-      </div>
-    `;
+    html += makeGoalCard(g, pct, challenge.id);
   }
-  if (data.achievements.length) {
-    html += `<h4>Achievements</h4>`;
-    for (const a of data.achievements) {
-      html += `<div class="achievement">${a.unlockedAt ? "🏆" : "🔒"} ${escapeHtml(a.title)}${a.unlockedAt ? " — " + new Date(a.unlockedAt).toLocaleDateString() : ""}</div>`;
-    }
-  }
+
+  html += await renderPrizes(challenge);
+  html += await renderAchievements(data.achievements);
+  html += await renderActivityLog(challenge.id);
   html += `</div>`;
   container.innerHTML = html;
-  container.scrollIntoView({ behavior: "smooth" });
+
+  // Load activity forms
+  for (const goal of challenge.goals) {
+    const actionsDiv = document.getElementById("goal-actions-" + goal.id);
+    if (!actionsDiv || !goal.activities || goal.activities.length === 0) continue;
+    actionsDiv.innerHTML = goal.activities.map(a => `
+      <form onsubmit="logActivity('${challenge.id}', '${a.id}', event)">
+        <label>${escapeHtml(a.name)} (${a.pointValue}/${escapeHtml(a.unit)}):</label>
+        <input type="number" step="any" placeholder="${escapeHtml(a.unit)}" required>
+        <input type="text" placeholder="Notes (optional)" class="notes-input">
+        <button type="submit">Log</button>
+      </form>
+    `).join("");
+  }
+}
+
+async function renderFamilyProgress(challenge, panelHtml, container) {
+  const membersRes = await fetch(API + "/api/challenges/" + challenge.id + "/progress/members", {
+    headers: { ...authHeaders() },
+  });
+  if (!membersRes.ok) return;
+  const data = await membersRes.json();
+
+  let html = panelHtml;
+  html += `<div class="member-tabs">`;
+  html += data.members.map((m, i) =>
+    `<button class="member-tab ${i === 0 ? 'active' : ''}" onclick="switchMember('${m.userId}')">${escapeHtml(m.email.split('@')[0])}</button>`
+  ).join("");
+  html += `</div>`;
+
+  html += `<div id="member-progress-container">`;
+  for (const m of data.members) {
+    const isVisible = m === data.members[0];
+    html += `<div class="member-progress" id="member-progress-${m.userId}" style="display:${isVisible ? 'block' : 'none'}">`;
+    html += `<h4>${escapeHtml(m.email)}</h4>`;
+    for (const g of m.goals) {
+      const pct = g.targetValue ? Math.round((g.currentValue / g.targetValue) * 100) : 0;
+      html += makeGoalCard(g, pct, challenge.id, m.userId);
+    }
+    html += `</div>`;
+  }
+  html += `</div>`;
+
+  html += await renderPrizes(challenge);
+  html += await renderAchievements(data.achievements);
+  html += await renderActivityLog(challenge.id);
+  html += `</div>`;
+  container.innerHTML = html;
+
+  // Load activity forms for the visible member
+  const firstMember = data.members[0];
+  if (firstMember) {
+    currentMemberId = firstMember.userId;
+    for (const goal of challenge.goals) {
+      const actionsDiv = document.getElementById("goal-actions-" + goal.id);
+      if (!actionsDiv || !goal.activities || goal.activities.length === 0) continue;
+      actionsDiv.innerHTML = goal.activities.map(a => `
+        <form onsubmit="logActivity('${challenge.id}', '${a.id}', event)">
+          <label>${escapeHtml(a.name)} (${a.pointValue}/${escapeHtml(a.unit)}):</label>
+          <input type="number" step="any" placeholder="${escapeHtml(a.unit)}" required>
+          <input type="text" placeholder="Notes (optional)" class="notes-input">
+          <button type="submit">Log</button>
+        </form>
+      `).join("");
+    }
+  }
+}
+
+function makeGoalCard(g, pct, challengeId, memberId) {
+  return `
+    <div class="goal-progress">
+      <div class="goal-header">
+        <strong>${escapeHtml(g.goalDescription)}</strong>
+        <span class="goal-type-tag">${escapeHtml(g.goalType)}</span>
+      </div>
+      ${g.targetValue != null
+        ? `<div class="goal-value">${g.currentValue} / ${g.targetValue} ${g.unit || ""}</div>`
+        : `<div class="goal-value">${g.currentValue} pts</div>`}
+      ${g.isCompleted ? '<div class="goal-complete">✅ Complete!</div>' : ""}
+      ${g.targetValue ? `<div class="bar"><div class="bar-fill" style="width:${Math.min(pct, 100)}%"></div></div>` : ""}
+      ${!g.isCompleted ? `<div class="goal-actions" id="goal-actions-${g.goalId}"><em>Loading activities...</em></div>` : ""}
+    </div>
+  `;
+}
+
+function switchMember(userId) {
+  currentMemberId = userId;
+  document.querySelectorAll(".member-tab").forEach(t => t.classList.remove("active"));
+  document.querySelectorAll(".member-progress").forEach(d => d.style.display = "none");
+  document.querySelector(`.member-tab[onclick*="'${userId}'"]`)?.classList.add("active");
+  const mp = document.getElementById("member-progress-" + userId);
+  if (mp) mp.style.display = "block";
 }
 
 function closeProgress() {
+  currentChallengeId = null;
+  currentMemberId = null;
   document.getElementById("challenge-progress").innerHTML = "";
 }
 
-async function recordProgress(challengeId, goalId, event) {
+async function logActivity(challengeId, activityId, event) {
   event.preventDefault();
-  const input = event.target.querySelector("input");
-  const value = parseFloat(input.value);
-  if (isNaN(value)) return;
+  const form = event.target;
+  const amountInput = form.querySelector("input[type='number']");
+  const notesInput = form.querySelector("input.notes-input");
+  const amount = parseFloat(amountInput.value);
+  if (isNaN(amount)) return;
 
-  const res = await fetch(API + `/api/challenges/${challengeId}/goals/${goalId}/progress`, {
+  const body = { amount };
+  if (notesInput && notesInput.value.trim()) {
+    body.notes = notesInput.value.trim();
+  }
+
+  const res = await fetch(API + `/api/challenges/${challengeId}/activities/${activityId}/log`, {
     method: "POST",
     headers: { ...authHeaders(), "Content-Type": "application/json" },
-    body: JSON.stringify({ currentValue: value }),
+    body: JSON.stringify(body),
   });
   if (res.ok) {
     showProgress(challengeId);
@@ -300,8 +479,43 @@ async function recordProgress(challengeId, goalId, event) {
     loadChallenges();
   } else {
     const data = await res.json();
-    alert(data.error || "Failed to record progress");
+    alert(data.error || "Failed to log activity");
   }
+}
+
+async function renderActivityLog(challengeId) {
+  const res = await fetch(API + `/api/challenges/${challengeId}/activity-log?count=10`, {
+    headers: { ...authHeaders() },
+  });
+  if (!res.ok) return "";
+  const entries = await res.json();
+  if (!entries.length) return "";
+
+  let html = `<div class="activity-log"><h4>Recent Activity</h4>`;
+  for (const e of entries) {
+    html += `<div class="activity-entry">
+      <span class="activity-user">${escapeHtml(e.userEmail.split('@')[0])}</span>
+      <span class="activity-action">${escapeHtml(e.activityName)}</span>
+      <span class="activity-amount">${e.amount} ${escapeHtml(e.unit || "")}</span>
+      ${e.notes ? `<span class="activity-notes">— ${escapeHtml(e.notes)}</span>` : ""}
+      <span class="activity-time">${timeAgo(e.recordedAt)}</span>
+    </div>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
+async function renderAchievements(achievements) {
+  if (!achievements.length) return "";
+  let html = `<div class="achievements-section"><h4>Achievements</h4>`;
+  for (const a of achievements) {
+    html += `<div class="achievement ${a.unlockedAt ? 'unlocked' : 'locked'}">
+      ${a.unlockedAt ? "🏆" : "🔒"} ${escapeHtml(a.title)}
+      ${a.unlockedAt ? " — " + new Date(a.unlockedAt).toLocaleDateString() : ""}
+    </div>`;
+  }
+  html += `</div>`;
+  return html;
 }
 
 async function loadAchievements() {
@@ -313,11 +527,190 @@ async function loadAchievements() {
   const list = document.getElementById("achievement-list");
   if (achievements.length === 0) {
     list.innerHTML = "<p>No achievements yet. Complete goals to unlock them!</p>";
+    document.getElementById("achievement-count").textContent = "0";
     return;
   }
+  document.getElementById("achievement-count").textContent = achievements.length;
   list.innerHTML = achievements.map(a => `
     <div class="achievement">
       🏆 ${escapeHtml(a.title)} — unlocked ${new Date(a.unlockedAt).toLocaleDateString()}
     </div>
   `).join("");
+}
+
+function timeAgo(dateStr) {
+  const now = new Date();
+  const date = new Date(dateStr);
+  const ms = now - date;
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return mins + "m ago";
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return hrs + "h ago";
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return days + "d ago";
+  return date.toLocaleDateString();
+}
+
+async function renderPrizes(challenge) {
+  if (!challenge.prizes || challenge.prizes.length === 0) return "";
+  let html = `<div class="prizes-section"><h4>Prizes</h4>`;
+  for (const p of challenge.prizes) {
+    const costStr = p.cost != null ? ` (Cost: ${p.cost} ${challenge.currencyName ? escapeHtml(challenge.currencyName) : "pts"})` : "";
+    html += `<div class="prize-row">
+      <span>🏅 ${escapeHtml(p.description)}${costStr}</span>
+      <button onclick="generateRedemption('${challenge.id}', '${p.id}')">Generate QR</button>
+    </div>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
+async function generateRedemption(challengeId, prizeId) {
+  const existing = document.getElementById("qr-modal");
+  if (existing) existing.remove();
+
+  const challengeRes = await fetch(API + "/api/challenges/" + challengeId, {
+    headers: { ...authHeaders() },
+  });
+  if (!challengeRes.ok) return;
+  const challenge = await challengeRes.json();
+  const prize = challenge.prizes.find(p => p.id === prizeId);
+  if (!prize) return;
+
+  const qrUrl = `${API}/api/challenges/${challengeId}/prizes/${prizeId}/qr`;
+  const img = new Image();
+  img.src = qrUrl;
+  img.crossOrigin = "anonymous";
+
+  showQrModal(prize.description, prize.cost, challenge.currencyName, qrUrl);
+}
+
+function showQrModal(prizeDescription, cost, currencyName, qrUrl) {
+  const modal = document.createElement("div");
+  modal.id = "qr-modal";
+  modal.className = "qr-modal-overlay";
+  const costStr = cost != null ? `${cost} ${currencyName ? escapeHtml(currencyName) : "pts"}` : "";
+  modal.innerHTML = `
+    <div class="qr-modal-content">
+      <div class="qr-modal-header">
+        <h3>${escapeHtml(prizeDescription)}</h3>
+        <button onclick="closeQrModal()" class="qr-close">&times;</button>
+      </div>
+      <div class="qr-print-area" id="qr-print-area">
+        <div class="qr-card">
+          <div class="qr-reward-label">REWARD COUPON</div>
+          <div class="qr-prize-name">${escapeHtml(prizeDescription)}</div>
+          ${costStr ? `<div class="qr-cost">${costStr}</div>` : ""}
+          <img src="${qrUrl}" alt="QR Code" class="qr-image" crossorigin="anonymous">
+        </div>
+      </div>
+      <div class="qr-modal-actions">
+        <button onclick="printQr()">🖨️ Print</button>
+        <button onclick="closeQrModal()">Close</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+function closeQrModal() {
+  const modal = document.getElementById("qr-modal");
+  if (modal) modal.remove();
+}
+
+function printQr() {
+  const printArea = document.getElementById("qr-print-area");
+  if (!printArea) return;
+  const win = window.open("", "_blank");
+  if (!win) { alert("Please allow popups for printing"); return; }
+  win.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head><title>Print Reward Coupon</title>
+    <style>
+      body { font-family: system-ui, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #fff; }
+      .qr-card { text-align: center; padding: 2rem; border: 3px dashed #4f46e5; border-radius: 12px; max-width: 400px; }
+      .qr-reward-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 2px; color: #4f46e5; margin-bottom: 0.5rem; }
+      .qr-prize-name { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.25rem; }
+      .qr-cost { font-size: 1rem; color: #6b7280; margin-bottom: 1rem; }
+      .qr-image { width: 256px; height: 256px; image-rendering: pixelated; }
+      @media print { body { padding: 1in; } }
+    </style>
+    </head>
+    <body>${printArea.innerHTML}</body>
+    </html>
+  `);
+  win.document.close();
+  setTimeout(() => { win.print(); }, 500);
+}
+
+async function processRedemption(challengeId, prizeId) {
+  const modal = document.createElement("div");
+  modal.id = "redeem-modal";
+  modal.className = "qr-modal-overlay";
+  modal.innerHTML = `
+    <div class="qr-modal-content">
+      <h3>Redeem Prize</h3>
+      <div id="redeem-status">Looking up prize...</div>
+      <div id="redeem-prize-info" style="display:none"></div>
+      <form id="redeem-form" style="display:none" onsubmit="confirmRedemption('${challengeId}', '${prizeId}', event)">
+        <input type="text" id="redeem-notes" placeholder="Notes (optional)">
+        <button type="submit">Confirm Redemption</button>
+        <button type="button" onclick="closeQrModal()">Cancel</button>
+      </form>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  try {
+    const res = await fetch(API + "/api/challenges/" + challengeId, {
+      headers: { ...authHeaders() },
+    });
+    if (!res.ok) throw new Error("Challenge not found");
+    const challenge = await res.json();
+    const prize = challenge.prizes.find(p => p.id === prizeId);
+    if (!prize) throw new Error("Prize not found");
+
+    const costStr = prize.cost != null ? `${prize.cost} ${challenge.currencyName || "pts"}` : "";
+    document.getElementById("redeem-status").textContent = "";
+    document.getElementById("redeem-prize-info").innerHTML = `
+      <div class="redeem-prize-card">
+        <strong>🏅 ${escapeHtml(prize.description)}</strong>
+        ${costStr ? `<div class="redeem-cost">${costStr}</div>` : ""}
+      </div>
+    `;
+    document.getElementById("redeem-prize-info").style.display = "block";
+    document.getElementById("redeem-form").style.display = "block";
+  } catch (err) {
+    document.getElementById("redeem-status").textContent = "❌ " + err.message;
+  }
+}
+
+async function confirmRedemption(challengeId, prizeId, event) {
+  event.preventDefault();
+  const btn = event.target.querySelector("button[type='submit']");
+  btn.disabled = true;
+  btn.textContent = "Redeeming...";
+
+  const res = await fetch(API + `/api/challenges/${challengeId}/prizes/${prizeId}/redeem`, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+
+  if (res.ok) {
+    const data = await res.json();
+    const infoDiv = document.getElementById("redeem-prize-info");
+    infoDiv.innerHTML = `
+      <div class="redeem-success">✅ Redeemed! ${escapeHtml(data.prizeDescription)} for ${data.cost} pts.</div>
+    `;
+    document.getElementById("redeem-form").style.display = "none";
+    loadChallenges();
+  } else {
+    const data = await res.json();
+    document.getElementById("redeem-status").textContent = "❌ " + (data.error || "Redemption failed");
+    btn.disabled = false;
+    btn.textContent = "Confirm Redemption";
+  }
 }

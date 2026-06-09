@@ -15,6 +15,7 @@ public class Challenge
     public string? CurrencyName { get; set; }
     public DateTime CreatedAt { get; set; }
     public ICollection<ChallengeGoal> Goals { get; set; } = new List<ChallengeGoal>();
+    public ICollection<ChallengeActivity> Activities { get; set; } = new List<ChallengeActivity>();
     public ICollection<ChallengePrize> Prizes { get; set; } = new List<ChallengePrize>();
     public ICollection<ChallengeTarget> Targets { get; set; } = new List<ChallengeTarget>();
 }
