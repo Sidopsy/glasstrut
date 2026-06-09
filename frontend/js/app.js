@@ -26,6 +26,7 @@ function showDashboard(email) {
   document.getElementById("dashboard").style.display = "block";
   document.getElementById("user-email").textContent = email;
   loadFamilies();
+  loadChallenges();
 }
 
 function showAuth() {
@@ -123,7 +124,53 @@ document.addEventListener("DOMContentLoaded", () => {
       alert(data.error || "Failed to join family");
     }
   });
+
+  document.getElementById("create-challenge-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const title = document.getElementById("challenge-title").value;
+    const description = document.getElementById("challenge-description").value;
+    const goals = document.getElementById("challenge-goals").value.split(",").map(s => s.trim()).filter(Boolean);
+    const prizes = document.getElementById("challenge-prizes").value.split(",").map(s => s.trim()).filter(Boolean);
+
+    const body = { title, description, type: "SelfOnly", goals, prizes };
+    const res = await fetch(API + "/api/challenges", {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      document.getElementById("challenge-title").value = "";
+      document.getElementById("challenge-description").value = "";
+      document.getElementById("challenge-goals").value = "";
+      document.getElementById("challenge-prizes").value = "";
+      loadChallenges();
+    } else {
+      const data = await res.json();
+      alert(data.error || "Failed to create challenge");
+    }
+  });
 });
+
+async function loadChallenges() {
+  const res = await fetch(API + "/api/challenges", {
+    headers: { ...authHeaders() },
+  });
+  if (!res.ok) return;
+  const challenges = await res.json();
+  const list = document.getElementById("challenge-list");
+  if (challenges.length === 0) {
+    list.innerHTML = "<p>No challenges yet.</p>";
+    return;
+  }
+  list.innerHTML = challenges.map(c => `
+    <div class="challenge-card">
+      <strong>${escapeHtml(c.title)}</strong>
+      <p>${escapeHtml(c.description)}</p>
+      ${c.goals.length ? `<p><strong>Goals:</strong> ${c.goals.map(g => escapeHtml(g.description)).join(", ")}</p>` : ""}
+      ${c.prizes.length ? `<p><strong>Prizes:</strong> ${c.prizes.map(p => escapeHtml(p.description)).join(", ")}</p>` : ""}
+    </div>
+  `).join("");
+}
 
 async function loadFamilies() {
   const res = await apiFetch("/api/families");

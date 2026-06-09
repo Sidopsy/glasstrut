@@ -64,9 +64,11 @@ dotnet test
 
 ## Current status
 
-Phase 1 (Foundation) complete. Phase 2 (Authentication) complete. Phase 3 (Families) complete.
+Phase 1 (Foundation) complete. Phase 2 (Authentication) complete. Phase 3 (Families) complete. Phase 4 (Challenges) complete.
 
 - Family model (Family + FamilyMember) with unique invite codes
 - Create family (creator becomes Admin), join by code, list, view details
 - Remove members (admin only)
-- Tests: 10 passing
+- Challenge model with goals, prizes, and targeting (SelfOnly, FamilyWide, Targeted)
+- Create challenge with optional time constraints, goals, prizes
+- Tests: 16 passing

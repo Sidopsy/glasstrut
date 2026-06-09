@@ -18,10 +18,10 @@
 - [x] Family member management
 
 ## Phase 4 — Challenges
-- [ ] Create challenge (family-wide, self-only, targeted)
-- [ ] Optional time constraints
-- [ ] Multiple goals per challenge
-- [ ] Multiple prizes per challenge
+- [x] Create challenge (family-wide, self-only, targeted)
+- [x] Optional time constraints
+- [x] Multiple goals per challenge
+- [x] Multiple prizes per challenge
 
 ## Phase 5 — Goals & Achievements
 - [ ] Goal completion tracking
