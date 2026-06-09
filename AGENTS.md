@@ -64,11 +64,14 @@ dotnet test
 
 ## Current status
 
-Phase 1 (Foundation) complete. Phase 2 (Authentication) complete. Phase 3 (Families) complete. Phase 4 (Challenges) complete.
+Phase 1 (Foundation) complete. Phase 2 (Authentication) complete. Phase 3 (Families) complete. Phase 4 (Challenges) complete — including goal target values/units, prize costs, and challenge currency/points.
 
 - Family model (Family + FamilyMember) with unique invite codes
 - Create family (creator becomes Admin), join by code, list, view details
 - Remove members (admin only)
 - Challenge model with goals, prizes, and targeting (SelfOnly, FamilyWide, Targeted)
 - Create challenge with optional time constraints, goals, prizes
-- Tests: 16 passing
+- Goals have optional TargetValue, Unit, and PointValue
+- Prizes have optional Cost
+- Challenges have optional CurrencyName (e.g., "Ice Cream Points")
+- Tests: 18 passing

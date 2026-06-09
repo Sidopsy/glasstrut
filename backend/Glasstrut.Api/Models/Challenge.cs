@@ -12,6 +12,7 @@ public class Challenge
     public User CreatedBy { get; set; } = null!;
     public DateTime? StartDate { get; set; }
     public DateTime? EndDate { get; set; }
+    public string? CurrencyName { get; set; }
     public DateTime CreatedAt { get; set; }
     public ICollection<ChallengeGoal> Goals { get; set; } = new List<ChallengeGoal>();
     public ICollection<ChallengePrize> Prizes { get; set; } = new List<ChallengePrize>();

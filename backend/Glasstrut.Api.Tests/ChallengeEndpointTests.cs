@@ -47,8 +47,8 @@ public class ChallengeEndpointTests : IClassFixture<CustomWebApplicationFactory>
             title = "Read 10 Books",
             description = "Read 10 books this month",
             type = "SelfOnly",
-            goals = new[] { "Book 1", "Book 2" },
-            prizes = new[] { "Ice cream" }
+            goals = new[] { new { description = "Book 1" }, new { description = "Book 2" } },
+            prizes = new[] { new { description = "Ice cream" } }
         };
 
         var response = await _client.PostAsJsonAsync("/api/challenges", body);
@@ -63,6 +63,81 @@ public class ChallengeEndpointTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    public async Task CreateChallengeWithTargetValues()
+    {
+        var token = await RegisterAndGetTokenAsync();
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var body = new
+        {
+            title = "Summer Training",
+            description = "Run distances",
+            type = "SelfOnly",
+            startDate = "2026-06-01T00:00:00Z",
+            endDate = "2026-08-31T00:00:00Z",
+            goals = new[]
+            {
+                new { description = "Bronze", targetValue = 100m, unit = "km", pointValue = 10m },
+                new { description = "Silver", targetValue = 150m, unit = "km", pointValue = 20m },
+                new { description = "Gold", targetValue = 200m, unit = "km", pointValue = 30m },
+            },
+            prizes = new[]
+            {
+                new { description = "Medal", cost = 50m }
+            }
+        };
+
+        var response = await _client.PostAsJsonAsync("/api/challenges", body);
+        response.EnsureSuccessStatusCode();
+
+        var challenge = await response.Content.ReadFromJsonAsync<ChallengeResponse>();
+        Assert.NotNull(challenge);
+        Assert.Equal(3, challenge.Goals.Count);
+        Assert.Equal("Bronze", challenge.Goals[0].Description);
+        Assert.Equal(100, challenge.Goals[0].TargetValue);
+        Assert.Equal("km", challenge.Goals[0].Unit);
+        Assert.Equal(10, challenge.Goals[0].PointValue);
+        Assert.Single(challenge.Prizes);
+        Assert.Equal(50, challenge.Prizes[0].Cost);
+    }
+
+    [Fact]
+    public async Task CreateChallengeWithCurrency()
+    {
+        var token = await RegisterAndGetTokenAsync();
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var body = new
+        {
+            title = "Chores",
+            description = "Summer chores",
+            type = "SelfOnly",
+            currencyName = "Ice Cream Points",
+            goals = new[]
+            {
+                new { description = "Clean room", pointValue = 5m },
+                new { description = "Wash dishes", pointValue = 3m },
+            },
+            prizes = new[]
+            {
+                new { description = "Small cone", cost = 5m },
+                new { description = "Large cone", cost = 10m },
+            }
+        };
+
+        var response = await _client.PostAsJsonAsync("/api/challenges", body);
+        response.EnsureSuccessStatusCode();
+
+        var challenge = await response.Content.ReadFromJsonAsync<ChallengeResponse>();
+        Assert.NotNull(challenge);
+        Assert.Equal("Ice Cream Points", challenge.CurrencyName);
+        Assert.Equal(2, challenge.Goals.Count);
+        Assert.Equal(5, challenge.Goals[0].PointValue);
+        Assert.Equal(2, challenge.Prizes.Count);
+        Assert.Equal(10, challenge.Prizes[1].Cost);
+    }
+
+    [Fact]
     public async Task CreateFamilyWideChallenge()
     {
         var token = await RegisterAndGetTokenAsync();
@@ -74,8 +149,8 @@ public class ChallengeEndpointTests : IClassFixture<CustomWebApplicationFactory>
             description = "Clean the house together",
             type = "FamilyWide",
             familyId,
-            goals = new[] { "Living room", "Kitchen" },
-            prizes = new[] { "Pizza night" }
+            goals = new[] { new { description = "Living room" }, new { description = "Kitchen" } },
+            prizes = new[] { new { description = "Pizza night" } }
         };
 
         var response = await _client.PostAsJsonAsync("/api/challenges", body);
@@ -196,8 +271,8 @@ public class ChallengeEndpointTests : IClassFixture<CustomWebApplicationFactory>
     private record FamilyResponse(Guid Id, string Name, string InviteCode, DateTime CreatedAt, List<MemberResponse> Members);
     private record MemberResponse(string UserId, string Email, string Role);
     private record ChallengeResponse(Guid Id, string Title, string Description, string Type, Guid? FamilyId,
-        DateTime? StartDate, DateTime? EndDate, DateTime CreatedAt,
+        DateTime? StartDate, DateTime? EndDate, DateTime CreatedAt, string? CurrencyName,
         List<GoalResponse> Goals, List<PrizeResponse> Prizes, List<string> TargetUserIds);
-    private record GoalResponse(Guid Id, string Description);
-    private record PrizeResponse(Guid Id, string Description);
+    private record GoalResponse(Guid Id, string Description, decimal? TargetValue, string? Unit, decimal? PointValue);
+    private record PrizeResponse(Guid Id, string Description, decimal? Cost);
 }

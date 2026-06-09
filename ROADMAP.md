@@ -22,6 +22,9 @@
 - [x] Optional time constraints
 - [x] Multiple goals per challenge
 - [x] Multiple prizes per challenge
+- [ ] Goal target values + units (e.g., "100 km", "5 times")
+- [ ] Prize costs / point values (e.g., "costs 10 points")
+- [ ] Goal point values + challenge currency (e.g., "Ice Cream Points")
 
 ## Phase 5 — Goals & Achievements
 - [ ] Goal completion tracking
@@ -33,7 +36,12 @@
 - [ ] User dashboard
 - [ ] Notifications (optional)
 
-## Phase 7 — Polish
+## Phase 7 — QR Reward Redemption
+- [ ] QR code generation for prizes
+- [ ] Camera-based scanning / verification
+- [ ] Point deduction + prize fulfillment
+
+## Phase 8 — Polish
 - [ ] Styling (Tailwind / CSS)
 - [ ] Offline support (PWA caching)
 - [ ] Testing

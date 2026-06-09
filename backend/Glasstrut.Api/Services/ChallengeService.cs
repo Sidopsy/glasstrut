@@ -37,18 +37,22 @@ public class ChallengeService : IChallengeService
             CreatedById = userId,
             StartDate = request.StartDate,
             EndDate = request.EndDate,
+            CurrencyName = request.CurrencyName,
             CreatedAt = DateTime.UtcNow,
         };
 
         if (request.Goals != null)
         {
-            foreach (var goalDesc in request.Goals)
+            foreach (var goalDto in request.Goals)
             {
                 challenge.Goals.Add(new ChallengeGoal
                 {
                     Id = Guid.NewGuid(),
                     ChallengeId = challenge.Id,
-                    Description = goalDesc,
+                    Description = goalDto.Description,
+                    TargetValue = goalDto.TargetValue,
+                    Unit = goalDto.Unit,
+                    PointValue = goalDto.PointValue,
                     CreatedAt = DateTime.UtcNow,
                 });
             }
@@ -56,13 +60,14 @@ public class ChallengeService : IChallengeService
 
         if (request.Prizes != null)
         {
-            foreach (var prizeDesc in request.Prizes)
+            foreach (var prizeDto in request.Prizes)
             {
                 challenge.Prizes.Add(new ChallengePrize
                 {
                     Id = Guid.NewGuid(),
                     ChallengeId = challenge.Id,
-                    Description = prizeDesc,
+                    Description = prizeDto.Description,
+                    Cost = prizeDto.Cost,
                     CreatedAt = DateTime.UtcNow,
                 });
             }
@@ -152,9 +157,9 @@ public class ChallengeService : IChallengeService
     {
         return new ChallengeDto(
             c.Id, c.Title, c.Description, c.Type, c.FamilyId,
-            c.StartDate, c.EndDate, c.CreatedAt,
-            c.Goals.Select(g => new ChallengeGoalDto(g.Id, g.Description)).ToList(),
-            c.Prizes.Select(p => new ChallengePrizeDto(p.Id, p.Description)).ToList(),
+            c.StartDate, c.EndDate, c.CreatedAt, c.CurrencyName,
+            c.Goals.Select(g => new ChallengeGoalDto(g.Id, g.Description, g.TargetValue, g.Unit, g.PointValue)).ToList(),
+            c.Prizes.Select(p => new ChallengePrizeDto(p.Id, p.Description, p.Cost)).ToList(),
             c.Targets.Select(t => t.UserId).ToList()
         );
     }

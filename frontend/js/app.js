@@ -132,7 +132,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const goals = document.getElementById("challenge-goals").value.split(",").map(s => s.trim()).filter(Boolean);
     const prizes = document.getElementById("challenge-prizes").value.split(",").map(s => s.trim()).filter(Boolean);
 
-    const body = { title, description, type: "SelfOnly", goals, prizes };
+    const body = {
+      title, description, type: "SelfOnly",
+      goals: goals.map(g => ({ description: g })),
+      prizes: prizes.map(p => ({ description: p })),
+    };
     const res = await fetch(API + "/api/challenges", {
       method: "POST",
       headers: { ...authHeaders(), "Content-Type": "application/json" },
@@ -165,9 +169,19 @@ async function loadChallenges() {
   list.innerHTML = challenges.map(c => `
     <div class="challenge-card">
       <strong>${escapeHtml(c.title)}</strong>
+      ${c.currencyName ? `<span class="badge">${escapeHtml(c.currencyName)}</span>` : ""}
       <p>${escapeHtml(c.description)}</p>
-      ${c.goals.length ? `<p><strong>Goals:</strong> ${c.goals.map(g => escapeHtml(g.description)).join(", ")}</p>` : ""}
-      ${c.prizes.length ? `<p><strong>Prizes:</strong> ${c.prizes.map(p => escapeHtml(p.description)).join(", ")}</p>` : ""}
+      ${c.goals.length ? `<p><strong>Goals:</strong> ${c.goals.map(g => {
+        let s = escapeHtml(g.description);
+        if (g.targetValue != null) s += " (" + g.targetValue + (g.unit ? " " + escapeHtml(g.unit) : "") + ")";
+        if (g.pointValue != null) s += " — " + g.pointValue + " pts";
+        return s;
+      }).join(", ")}</p>` : ""}
+      ${c.prizes.length ? `<p><strong>Prizes:</strong> ${c.prizes.map(p => {
+        let s = escapeHtml(p.description);
+        if (p.cost != null) s += " (cost: " + p.cost + ")";
+        return s;
+      }).join(", ")}</p>` : ""}
     </div>
   `).join("");
 }
