@@ -49,6 +49,7 @@ function showAuth() {
 }
 
 function logout() {
+  closeScanner();
   localStorage.removeItem("token");
   currentChallengeId = null;
   currentMemberId = null;
@@ -644,6 +645,8 @@ function showQrModal(prizeDescription, cost, currencyName, qrUrl) {
 function closeQrModal() {
   const modal = document.getElementById("qr-modal");
   if (modal) modal.remove();
+  const redeemModal = document.getElementById("redeem-modal");
+  if (redeemModal) redeemModal.remove();
 }
 
 function printQr() {
@@ -740,4 +743,86 @@ async function confirmRedemption(challengeId, prizeId, event) {
     btn.disabled = false;
     btn.textContent = "Confirm Redemption";
   }
+}
+
+// --- QR Scanner ---
+
+let scannerStream = null;
+let scannerAnimationId = null;
+
+async function openScanner() {
+  const existing = document.getElementById("scanner-modal");
+  if (existing) existing.remove();
+
+  const modal = document.createElement("div");
+  modal.id = "scanner-modal";
+  modal.className = "qr-modal-overlay";
+  modal.innerHTML = `
+    <div class="qr-modal-content scanner-content">
+      <div class="qr-modal-header">
+        <h3>Scan QR Code</h3>
+        <button onclick="closeScanner()" class="qr-close">&times;</button>
+      </div>
+      <div class="scanner-view">
+        <video id="scanner-video" autoplay playsinline muted></video>
+        <canvas id="scanner-canvas" style="display:none"></canvas>
+        <div id="scanner-status">Position the QR code in the camera view...</div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  document.getElementById("scanner-status").textContent = "Requesting camera...";
+
+  try {
+    scannerStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment", width: 640, height: 480 }
+    });
+    const video = document.getElementById("scanner-video");
+    video.srcObject = scannerStream;
+    await video.play();
+    document.getElementById("scanner-status").textContent = "Position the QR code in the camera view...";
+    scanFrame();
+  } catch {
+    document.getElementById("scanner-status").textContent = "❌ Camera not available. Allow camera access and try again.";
+  }
+}
+
+function closeScanner() {
+  if (scannerAnimationId) { cancelAnimationFrame(scannerAnimationId); scannerAnimationId = null; }
+  if (scannerStream) {
+    scannerStream.getTracks().forEach(t => t.stop());
+    scannerStream = null;
+  }
+  const modal = document.getElementById("scanner-modal");
+  if (modal) modal.remove();
+}
+
+function scanFrame() {
+  const video = document.getElementById("scanner-video");
+  if (!video || !video.videoWidth) { scannerAnimationId = requestAnimationFrame(scanFrame); return; }
+
+  const canvas = document.getElementById("scanner-canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+  const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "dontInvert" });
+  if (code) {
+    try {
+      const url = new URL(code.data);
+      const claim = url.searchParams.get("claim");
+      if (claim) {
+        const parts = claim.split(":");
+        if (parts.length === 2) {
+          closeScanner();
+          processRedemption(parts[0], parts[1]);
+          return;
+        }
+      }
+    } catch { /* not a valid URL with claim param */ }
+  }
+
+  scannerAnimationId = requestAnimationFrame(scanFrame);
 }

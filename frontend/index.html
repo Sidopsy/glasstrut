@@ -36,7 +36,7 @@
     </section>
 
     <section id="dashboard" style="display:none">
-      <p>Welcome, <span id="user-email"></span>! <button onclick="logout()">Logout</button></p>
+      <p>Welcome, <span id="user-email"></span>! <button onclick="openScanner()">Scan QR</button> <button onclick="logout()">Logout</button></p>
 
       <hr>
 
@@ -93,6 +93,7 @@
     </section>
   </main>
   <script src="/js/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
   <script src="/js/app.js"></script>
 </body>
 </html>
