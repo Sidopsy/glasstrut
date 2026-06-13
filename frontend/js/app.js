@@ -2,7 +2,7 @@ const API = API_BASE;
 const EMOJIS = ["🛏️", "📚", "🧹", "🏃", "🎨", "🎵", "🌱", "🍳", "🧩", "📝"];
 
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("/sw.js");
+  navigator.serviceWorker.register("sw.js");
 }
 
 let currentChallengeId = null;
