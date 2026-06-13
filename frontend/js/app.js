@@ -11,6 +11,7 @@ let isRegisterMode = false;
 let cachedChallenges = [];
 let cachedProgressMap = {};
 let cachedFamilies = [];
+let currentUserId = null;
 
 function authHeaders() {
   const token = localStorage.getItem("token");
@@ -58,6 +59,40 @@ function getDayGreeting() {
   return `Happy ${day} ${time}`;
 }
 
+function decodeUserId() {
+  const token = localStorage.getItem("token");
+  if (!token) return null;
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return payload["http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier"];
+  } catch { return null; }
+}
+
+// ========== TOAST ==========
+
+function showToast(title, description, type) {
+  const container = document.getElementById("toast-container");
+  if (!container) return;
+
+  const bg = type === "surprise" ? "bg-gradient-to-r from-amber-400 to-orange-500"
+    : type === "success" ? "bg-green-500"
+    : type === "error" ? "bg-red-500"
+    : "bg-indigo-600";
+
+  const toast = document.createElement("div");
+  toast.className = `${bg} text-white rounded-2xl p-4 shadow-lg pointer-events-auto animate-slide-down flex items-start gap-3`;
+  toast.innerHTML = `
+    <span class="text-xl shrink-0">${type === "surprise" ? "🎉" : type === "success" ? "✅" : type === "error" ? "❌" : "ℹ️"}</span>
+    <div class="flex-1 min-w-0">
+      <div class="font-bold text-sm">${escapeHtml(title)}</div>
+      ${description ? `<div class="text-xs opacity-90 mt-0.5">${escapeHtml(description)}</div>` : ""}
+    </div>
+    <button onclick="this.parentElement.remove()" class="text-white/80 hover:text-white shrink-0 text-lg leading-none">&times;</button>
+  `;
+  container.appendChild(toast);
+  setTimeout(() => { toast.style.opacity = "0"; toast.style.transform = "translateY(-20px)"; toast.style.transition = "all 0.3s"; setTimeout(() => toast.remove(), 300); }, 5000);
+}
+
 // ========== AUTH ==========
 
 function showAuth() {
@@ -72,13 +107,17 @@ function showDashboard(email) {
   document.getElementById("dashboard").classList.remove("hidden");
   document.getElementById("bottom-nav").classList.remove("hidden");
 
-  const name = email ? email.split("@")[0] : "User";
-  document.getElementById("user-name").textContent = name.charAt(0).toUpperCase() + name.slice(1);
-  document.getElementById("profile-name").textContent = name.charAt(0).toUpperCase() + name.slice(1);
+  currentUserId = decodeUserId();
+
+  const storedUsername = localStorage.getItem("username");
+  const displayName = storedUsername || (email ? email.split("@")[0] : "User");
+  const capitalized = displayName.charAt(0).toUpperCase() + displayName.slice(1);
+  document.getElementById("user-name").textContent = capitalized;
+  document.getElementById("profile-name").textContent = capitalized;
   document.getElementById("profile-email").textContent = email || "";
   document.getElementById("greeting-day").textContent = getDayGreeting();
 
-  const initial = email ? email[0].toUpperCase() : "?";
+  const initial = displayName[0].toUpperCase();
   document.getElementById("user-avatar").textContent = initial;
   document.getElementById("profile-avatar").textContent = initial;
 
@@ -100,12 +139,14 @@ function showDashboard(email) {
 function logout() {
   closeScanner();
   localStorage.removeItem("token");
+  localStorage.removeItem("username");
   currentChallengeId = null;
   currentMemberId = null;
   isRegisterMode = false;
   cachedChallenges = [];
   cachedProgressMap = {};
   cachedFamilies = [];
+  currentUserId = null;
   showAuth();
 }
 
@@ -120,13 +161,16 @@ function toggleAuthForm() {
   const title = document.getElementById("auth-form-title");
   const btn = document.getElementById("auth-submit-btn");
   const toggle = document.getElementById("auth-toggle");
+  const usernameGroup = document.getElementById("auth-username-group");
   if (isRegisterMode) {
     title.textContent = "Create Account";
     btn.textContent = "REGISTER";
+    usernameGroup.classList.remove("hidden");
     toggle.innerHTML = '<span class="text-slate-500">Already have an account?</span> <button type="button" onclick="toggleAuthForm()" class="font-bold text-indigo-600 ml-1">LOG IN</button>';
   } else {
     title.textContent = "Log In";
     btn.textContent = "LOG IN";
+    usernameGroup.classList.add("hidden");
     toggle.innerHTML = '<span class="text-slate-500">No account yet?</span> <button type="button" onclick="toggleAuthForm()" class="font-bold text-indigo-600 ml-1">CREATE AN ACCOUNT</button>';
   }
   clearAuthError();
@@ -134,6 +178,10 @@ function toggleAuthForm() {
 
 async function authFetch(endpoint, email, password) {
   const formData = new URLSearchParams({ email, password });
+  if (isRegisterMode) {
+    const username = document.getElementById("auth-username").value.trim();
+    if (username) formData.set("username", username);
+  }
   const res = await fetch(API + endpoint, {
     method: "POST",
     body: formData,
@@ -169,6 +217,8 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const payload = JSON.parse(atob(token.split(".")[1]));
       const email = payload["http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"];
+      const username = payload["http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"];
+      if (username) localStorage.setItem("username", username);
       if (email) showDashboard(email);
       else showAuth();
     } catch {
@@ -186,6 +236,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const endpoint = isRegisterMode ? "/api/auth/register" : "/api/auth/login";
       const data = await authFetch(endpoint, email, password);
       localStorage.setItem("token", data.token);
+      if (data.userName) localStorage.setItem("username", data.userName);
       showDashboard(data.email);
       clearAuthError();
     } catch (err) {
@@ -229,46 +280,6 @@ document.addEventListener("DOMContentLoaded", () => {
     } else {
       const data = await res.json();
       alert(data.error || "Failed to join family");
-    }
-  });
-
-  document.getElementById("challenge-type").addEventListener("change", () => {
-    const type = document.getElementById("challenge-type").value;
-    document.getElementById("family-select-group").classList.toggle("hidden", type === "SelfOnly");
-  });
-
-  document.getElementById("create-challenge-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const title = document.getElementById("challenge-title").value;
-    const description = document.getElementById("challenge-description").value;
-    const type = document.getElementById("challenge-type").value;
-    const familyId = type !== "SelfOnly" ? document.getElementById("challenge-family").value : null;
-    if (type !== "SelfOnly" && !familyId) { alert("Please select a family."); return; }
-    const goals = document.getElementById("challenge-goals").value.split(",").map(s => s.trim()).filter(Boolean);
-    const prizes = document.getElementById("challenge-prizes").value.split(",").map(s => s.trim()).filter(Boolean);
-    const currencyName = document.getElementById("challenge-currency").value.trim();
-
-    const body = {
-      title, description, type, familyId,
-      goals: goals.map(g => ({
-        description: g,
-        type: "Achievement",
-        activities: [{ name: g, unit: "times", pointValue: 1 }]
-      })),
-      prizes: prizes.map(p => ({ description: p })),
-    };
-    if (currencyName) body.currencyName = currencyName;
-    const res = await fetch(API + "/api/challenges", {
-      method: "POST",
-      headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (res.ok) {
-      closeCreateChallengeForm();
-      loadAllData();
-    } else {
-      const data = await res.json();
-      alert(data.error || "Failed to create challenge");
     }
   });
 });
@@ -411,6 +422,7 @@ async function renderChronicleFeed() {
         </div>
         <div class="text-right shrink-0">
           <span class="font-bold text-green-500 bg-green-50 px-2 py-1 rounded-lg text-sm">+${e.amount} ${escapeHtml(e.unit || "")}</span>
+          ${e.currencyEarned ? `<p class="text-xs font-bold text-amber-600 mt-0.5">+${e.currencyEarned} pts</p>` : ""}
           <p class="text-xs text-slate-400 mt-1">${timeAgo(e.recordedAt)}</p>
         </div>
       </div>
@@ -420,15 +432,322 @@ async function renderChronicleFeed() {
 
 async function refreshPoints() {
   let total = 0;
+  let currencyName = "";
   for (const c of cachedChallenges) {
     const p = cachedProgressMap[c.id];
     if (p) {
-      for (const g of p.progress) {
-        if (g.goalType === "Currency") total += g.currentValue;
-      }
+      total += p.currencyBalance || 0;
+      if (p.currencyName) currencyName = p.currencyName;
     }
   }
-  document.getElementById("user-points").textContent = total + " 🍦";
+  const symbol = currencyName ? ` ${currencyName}` : " 🍦";
+  document.getElementById("user-points").textContent = total + symbol;
+}
+
+// ========== CHALLENGE MODAL ==========
+
+let editChallengeData = null;
+
+function toggleChallengeFamilySelect() {
+  const type = document.getElementById("challenge-type").value;
+  document.getElementById("family-select-group").classList.toggle("hidden", type === "SelfOnly");
+}
+
+function showCreateChallengeForm() {
+  editChallengeData = null;
+  document.getElementById("challenge-modal-title").textContent = "Create Challenge";
+  document.getElementById("challenge-submit-btn").textContent = "Create";
+  document.getElementById("challenge-edit-id").value = "";
+  document.getElementById("challenge-title").value = "";
+  document.getElementById("challenge-description").value = "";
+  document.getElementById("challenge-type").value = "SelfOnly";
+  document.getElementById("challenge-currency").value = "";
+  document.getElementById("goals-container").innerHTML = "";
+  document.getElementById("prizes-container").innerHTML = "";
+  toggleChallengeFamilySelect();
+
+  const familySelect = document.getElementById("challenge-family");
+  familySelect.innerHTML = '<option value="">Select a family...</option>' +
+    cachedFamilies.map(f => `<option value="${f.id}">${escapeHtml(f.name)}</option>`).join("");
+
+  addGoalField();
+  addPrizeField();
+  document.getElementById("challenge-modal").classList.remove("hidden");
+}
+
+function showEditChallengeForm(challengeId) {
+  const c = cachedChallenges.find(x => x.id === challengeId);
+  if (!c) return;
+
+  editChallengeData = c;
+  document.getElementById("challenge-modal-title").textContent = "Edit Challenge";
+  document.getElementById("challenge-submit-btn").textContent = "Save Changes";
+  document.getElementById("challenge-edit-id").value = c.id;
+  document.getElementById("challenge-title").value = c.title;
+  document.getElementById("challenge-description").value = c.description;
+  document.getElementById("challenge-type").value = c.type;
+  document.getElementById("challenge-currency").value = c.currencyName || "";
+  toggleChallengeFamilySelect();
+
+  const familySelect = document.getElementById("challenge-family");
+  familySelect.innerHTML = '<option value="">Select a family...</option>' +
+    cachedFamilies.map(f => `<option value="${f.id}">${escapeHtml(f.name)}</option>`).join("");
+  if (c.familyId) familySelect.value = c.familyId;
+
+  document.getElementById("goals-container").innerHTML = "";
+  if (c.goals && c.goals.length > 0) {
+    c.goals.forEach(g => addGoalField(g));
+  } else {
+    addGoalField();
+  }
+
+  document.getElementById("prizes-container").innerHTML = "";
+  if (c.prizes && c.prizes.length > 0) {
+    c.prizes.forEach(p => addPrizeField(p, c.goals));
+  } else {
+    addPrizeField();
+  }
+
+  document.getElementById("challenge-modal").classList.remove("hidden");
+}
+
+function closeChallengeModal() {
+  document.getElementById("challenge-modal").classList.add("hidden");
+  editChallengeData = null;
+}
+
+function addGoalField(goal) {
+  const container = document.getElementById("goals-container");
+  const idx = container.children.length;
+  const div = document.createElement("div");
+  div.className = "goal-field bg-slate-50 rounded-xl p-3 mb-2 relative";
+  div.dataset.index = idx;
+  if (goal && goal.id) div.dataset.editId = goal.id;
+
+  const activitiesHtml = goal && goal.activities && goal.activities.length > 0
+    ? goal.activities.map(a => makeActivityHtml(a)).join("")
+    : makeActivityHtml();
+
+  div.innerHTML = `
+    <button type="button" onclick="this.closest('.goal-field').remove()" class="absolute top-2 right-2 text-slate-400 hover:text-red-500 text-lg leading-none">&times;</button>
+    <div class="grid grid-cols-2 gap-2 mb-2">
+      <input type="text" placeholder="Goal description" value="${goal ? escapeHtml(goal.description) : ""}" required
+        class="goal-desc w-full py-2 px-2 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
+      <select class="goal-type w-full py-2 px-2 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
+        <option value="Achievement" ${goal && goal.type === "Achievement" ? "selected" : ""}>Achievement</option>
+      </select>
+    </div>
+    <div class="grid grid-cols-3 gap-2 mb-2">
+      <input type="number" step="any" placeholder="Target" value="${goal && goal.targetValue != null ? goal.targetValue : ""}"
+        class="goal-target w-full py-2 px-2 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
+      <input type="text" placeholder="Unit" value="${goal && goal.unit ? escapeHtml(goal.unit) : ""}"
+        class="goal-unit w-full py-2 px-2 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
+      <label class="flex items-center gap-2 text-sm text-slate-600">
+        <input type="checkbox" class="goal-hidden" ${goal && goal.isHidden ? "checked" : ""}>
+        Hidden
+      </label>
+    </div>
+    <div class="activities-container">
+      ${activitiesHtml}
+    </div>
+    <button type="button" onclick="addActivityToGoal(this)" class="text-xs font-medium text-indigo-600 hover:text-indigo-800 mt-1">+ Add Activity</button>
+  `;
+  container.appendChild(div);
+
+  // Reindex
+  reindexGoals();
+}
+
+function makeActivityHtml(activity) {
+  return `
+    <div class="activity-field flex items-center gap-1.5 mb-1">
+      ${activity && activity.id ? `<input type="hidden" class="act-id" value="${activity.id}">` : ""}
+      <input type="text" placeholder="Name" value="${activity ? escapeHtml(activity.name) : ""}" required
+        class="act-name flex-1 min-w-0 py-1.5 px-2 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-xs">
+      <select class="act-type py-1.5 px-1 bg-white rounded-lg border border-slate-200 text-xs">
+        <option value="Occurrence" ${activity && activity.activityType === "Occurrence" ? "selected" : ""}>Occurrence</option>
+        <option value="Distance" ${activity && activity.activityType === "Distance" ? "selected" : ""}>Distance</option>
+        <option value="Time" ${activity && activity.activityType === "Time" ? "selected" : ""}>Time</option>
+        <option value="DistanceAndTime" ${activity && activity.activityType === "DistanceAndTime" ? "selected" : ""}>Dist+Time</option>
+      </select>
+      <input type="text" placeholder="Unit" value="${activity ? escapeHtml(activity.unit) : ""}" required
+        class="act-unit w-16 py-1.5 px-1 bg-white rounded-lg border border-slate-200 text-xs">
+      <input type="number" step="any" placeholder="Pts" value="${activity ? activity.pointValue : "1"}" required
+        class="act-points w-14 py-1.5 px-1 bg-white rounded-lg border border-slate-200 text-xs">
+      <button type="button" onclick="this.closest('.activity-field').remove()" class="text-red-400 hover:text-red-600 text-xs">&times;</button>
+    </div>
+  `;
+}
+
+function addActivityToGoal(btn) {
+  const container = btn.closest(".goal-field").querySelector(".activities-container");
+  container.insertAdjacentHTML("beforeend", makeActivityHtml());
+}
+
+function reindexGoals() {
+  // not strictly needed but keeps things tidy
+}
+
+function addPrizeField(prize, allGoals) {
+  const container = document.getElementById("prizes-container");
+  const div = document.createElement("div");
+  div.className = "prize-field bg-slate-50 rounded-xl p-3 mb-2 relative";
+  if (prize && prize.id) div.dataset.editId = prize.id;
+
+  const goalOptions = (allGoals || [...document.querySelectorAll(".goal-field")].map((g, i) => ({
+    id: "",
+    index: i,
+    desc: g.querySelector(".goal-desc")?.value || `Goal ${i + 1}`
+  })));
+
+  // Build goal dropdown from currently visible goals
+  const goalSelectHtml = buildPrizeGoalDropdown(prize);
+
+  div.innerHTML = `
+    <button type="button" onclick="this.closest('.prize-field').remove()" class="absolute top-2 right-2 text-slate-400 hover:text-red-500 text-lg leading-none">&times;</button>
+    <div class="grid grid-cols-2 gap-2 mb-2">
+      <input type="text" placeholder="Prize description" value="${prize ? escapeHtml(prize.description) : ""}" required
+        class="prize-desc w-full py-2 px-2 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
+      <input type="number" step="any" placeholder="Cost (pts, leave empty for free)" value="${prize && prize.cost != null ? prize.cost : ""}"
+        class="prize-cost w-full py-2 px-2 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
+    </div>
+    <div class="flex items-center gap-3 text-sm text-slate-600">
+      <label class="flex items-center gap-1">
+        <input type="checkbox" class="prize-hasqr" ${(!prize || prize.hasQR) ? "checked" : ""}>
+        QR
+      </label>
+      <label class="flex items-center gap-1 flex-1">
+        <span class="text-xs whitespace-nowrap">Linked goal:</span>
+        <select class="prize-goal py-1 px-1 bg-white rounded-lg border border-slate-200 text-xs flex-1">
+          ${goalSelectHtml}
+        </select>
+      </label>
+    </div>
+  `;
+  container.appendChild(div);
+}
+
+function buildPrizeGoalDropdown(prize) {
+  const goalFields = document.querySelectorAll(".goal-field");
+  let html = '<option value="">None</option>';
+  if (goalFields.length > 0) {
+    goalFields.forEach((g, i) => {
+      const desc = g.querySelector(".goal-desc")?.value || `Goal ${i + 1}`;
+      const editId = g.dataset.editId;
+      const selected = prize && prize.challengeGoalId && editId === prize.challengeGoalId ? "selected" : "";
+      html += `<option value="goal-${i}" ${selected}>${escapeHtml(desc)}</option>`;
+    });
+  }
+  return html;
+}
+
+function refreshPrizeGoalDropdowns() {
+  document.querySelectorAll(".prize-field").forEach(pf => {
+    const select = pf.querySelector(".prize-goal");
+    if (select) {
+      const currentVal = select.value;
+      select.innerHTML = buildPrizeGoalDropdown();
+      if (currentVal) select.value = currentVal;
+    }
+  });
+}
+
+// Override addGoalField to refresh prize dropdowns
+const _origAddGoalField = addGoalField;
+addGoalField = function(goal) {
+  _origAddGoalField(goal);
+  refreshPrizeGoalDropdowns();
+};
+
+async function submitChallenge(event) {
+  event.preventDefault();
+  const editId = document.getElementById("challenge-edit-id").value;
+  const title = document.getElementById("challenge-title").value;
+  const description = document.getElementById("challenge-description").value;
+  const type = document.getElementById("challenge-type").value;
+  const familyId = type !== "SelfOnly" ? document.getElementById("challenge-family").value : null;
+  const currencyName = document.getElementById("challenge-currency").value.trim();
+
+  const goals = [];
+  document.querySelectorAll(".goal-field").forEach(g => {
+    const editId = g.dataset.editId;
+    const description = g.querySelector(".goal-desc").value;
+    const goalType = g.querySelector(".goal-type").value;
+    const targetValue = g.querySelector(".goal-target").value;
+    const unit = g.querySelector(".goal-unit").value;
+    const isHidden = g.querySelector(".goal-hidden").checked;
+    const activities = [];
+    g.querySelectorAll(".activity-field").forEach(a => {
+      const actIdInput = a.querySelector(".act-id");
+      const name = a.querySelector(".act-name").value;
+      const activityType = a.querySelector(".act-type").value;
+      const actUnit = a.querySelector(".act-unit").value;
+      const pointValue = a.querySelector(".act-points").value;
+      if (name && actUnit && pointValue) {
+        const act = { name, activityType, unit: actUnit, pointValue: parseFloat(pointValue) };
+        if (actIdInput && actIdInput.value) act.id = actIdInput.value;
+        activities.push(act);
+      }
+    });
+    if (description) {
+      const gd = {
+        id: editId || undefined,
+        description,
+        type: goalType,
+        targetValue: targetValue ? parseFloat(targetValue) : null,
+        unit: unit || null,
+        isHidden,
+        activities: activities.length > 0 ? activities : null,
+      };
+      goals.push(gd);
+    }
+  });
+
+  const prizes = [];
+  document.querySelectorAll(".prize-field").forEach(p => {
+    const description = p.querySelector(".prize-desc").value;
+    const cost = p.querySelector(".prize-cost").value;
+    const hasQR = p.querySelector(".prize-hasqr").checked;
+    const goalIdx = p.querySelector(".prize-goal").value;
+    if (description) {
+      let linkedGoalId = null;
+      if (goalIdx) {
+        const goalIndex = parseInt(goalIdx.replace("goal-", ""));
+        linkedGoalId = goals[goalIndex]?.id || null;
+      }
+      const pd = {
+        id: (editChallengeData && editChallengeData.prizes && prize.dataset.editId) ? prize.dataset.editId : undefined,
+        description,
+        cost: cost ? parseFloat(cost) : null,
+        hasQR,
+        challengeGoalId: linkedGoalId,
+      };
+      prizes.push(pd);
+    }
+  });
+
+  const body = {
+    title, description, type, familyId: familyId || null,
+    goals, prizes,
+  };
+  if (currencyName) body.currencyName = currencyName;
+
+  const method = editId ? "PUT" : "POST";
+  const url = editId ? `/api/challenges/${editId}` : "/api/challenges";
+
+  const res = await fetch(API + url, {
+    method,
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (res.ok) {
+    closeChallengeModal();
+    loadAllData();
+  } else {
+    const data = await res.json();
+    alert(data.error || "Failed to save challenge");
+  }
 }
 
 // ========== QUESTS TAB ==========
@@ -444,6 +763,7 @@ function renderQuestList() {
     const completed = p ? p.progress.filter(g => g.isCompleted).length : 0;
     const total = p ? p.progress.length : c.goals.length;
     const emoji = EMOJIS[i % EMOJIS.length];
+    const isCreator = c.createdById && currentUserId && c.createdById === currentUserId;
     return `
       <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 cursor-pointer" onclick="showProgress('${c.id}')">
         <div class="flex items-center gap-3">
@@ -455,23 +775,14 @@ function renderQuestList() {
             </div>
             <p class="text-xs text-slate-500 mt-0.5">${completed}/${total} goals &middot; ${escapeHtml(c.description)}</p>
           </div>
-          <span class="text-slate-400">›</span>
+          <div class="flex items-center gap-1">
+            ${isCreator ? `<button onclick="event.stopPropagation(); showEditChallengeForm('${c.id}')" class="text-slate-400 hover:text-indigo-600 p-1" title="Edit">✏️</button>` : ""}
+            <span class="text-slate-400">›</span>
+          </div>
         </div>
       </div>
     `;
   }).join("");
-}
-
-function showCreateChallengeForm() {
-  // Populate family selector
-  const familySelect = document.getElementById("challenge-family");
-  familySelect.innerHTML = '<option value="">Select a family...</option>' +
-    cachedFamilies.map(f => `<option value="${f.id}">${escapeHtml(f.name)}</option>`).join("");
-  document.getElementById("create-challenge-modal").classList.remove("hidden");
-}
-
-function closeCreateChallengeForm() {
-  document.getElementById("create-challenge-modal").classList.add("hidden");
 }
 
 async function showProgress(challengeId) {
@@ -516,6 +827,14 @@ async function renderSelfProgress(challenge, panelHtml, container) {
   const data = await res.json();
 
   let html = panelHtml;
+
+  if (data.currencyName) {
+    html += `<div class="flex items-center gap-3 mb-3 p-3 bg-amber-50 rounded-xl border border-amber-200">
+      <span class="font-bold text-amber-700">💰 Balance: ${data.currencyBalance} ${escapeHtml(data.currencyName)}</span>
+      <span class="text-sm text-amber-600">🔥 ${data.currentStreak} day streak</span>
+    </div>`;
+  }
+
   for (const g of data.progress) {
     html += makeGoalCard(g, challenge.id);
   }
@@ -524,20 +843,7 @@ async function renderSelfProgress(challenge, panelHtml, container) {
   html += await renderActivityLog(challenge.id);
   html += `</div>`;
   container.innerHTML = html;
-
-  for (const goal of challenge.goals) {
-    const actionsDiv = document.getElementById("goal-actions-" + goal.id);
-    if (!actionsDiv || !goal.activities || goal.activities.length === 0) continue;
-    actionsDiv.innerHTML = goal.activities.map(a => `
-      <form onsubmit="logActivity('${challenge.id}', '${a.id}', event)" class="flex items-center gap-2 mt-2 flex-wrap">
-        <span class="text-sm font-medium text-slate-600">${escapeHtml(a.name)} (${a.pointValue}/${escapeHtml(a.unit)}):</span>
-        <input type="number" step="any" placeholder="${escapeHtml(a.unit)}" required
-          class="flex-1 min-w-[80px] py-2 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
-        <input type="text" placeholder="Notes" class="notes-input py-2 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm flex-1 min-w-[100px]">
-        <button type="submit" class="py-2 px-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors text-sm">Log</button>
-      </form>
-    `).join("");
-  }
+  renderGoalActions(challenge);
 }
 
 async function renderFamilyProgress(challenge, panelHtml, container) {
@@ -559,6 +865,12 @@ async function renderFamilyProgress(challenge, panelHtml, container) {
     const isVisible = m === data.members[0];
     html += `<div class="member-progress" id="member-progress-${m.userId}" style="display:${isVisible ? 'block' : 'none'}">`;
     html += `<h4 class="font-bold text-indigo-600 mb-2">${escapeHtml(m.email)}</h4>`;
+    if (m.currencyName) {
+      html += `<div class="flex items-center gap-3 mb-2 p-2 bg-amber-50 rounded-lg border border-amber-200 text-sm">
+        <span class="font-bold text-amber-700">💰 ${m.currencyBalance} ${escapeHtml(m.currencyName)}</span>
+        <span class="text-amber-600">🔥 ${m.currentStreak} day streak</span>
+      </div>`;
+    }
     for (const g of m.goals) {
       html += makeGoalCard(g, challenge.id, m.userId);
     }
@@ -575,19 +887,33 @@ async function renderFamilyProgress(challenge, panelHtml, container) {
   const firstMember = data.members[0];
   if (firstMember) {
     currentMemberId = firstMember.userId;
-    for (const goal of challenge.goals) {
-      const actionsDiv = document.getElementById("goal-actions-" + goal.id);
-      if (!actionsDiv || !goal.activities || goal.activities.length === 0) continue;
-      actionsDiv.innerHTML = goal.activities.map(a => `
+    renderGoalActions(challenge);
+  }
+}
+
+function renderGoalActions(challenge) {
+  for (const goal of challenge.goals) {
+    const actionsDiv = document.getElementById("goal-actions-" + goal.id);
+    if (!actionsDiv || !goal.activities || goal.activities.length === 0) continue;
+    actionsDiv.innerHTML = goal.activities.map(a => {
+      const isDistTime = a.activityType === "DistanceAndTime";
+      return `
         <form onsubmit="logActivity('${challenge.id}', '${a.id}', event)" class="flex items-center gap-2 mt-2 flex-wrap">
           <span class="text-sm font-medium text-slate-600">${escapeHtml(a.name)} (${a.pointValue}/${escapeHtml(a.unit)}):</span>
-          <input type="number" step="any" placeholder="${escapeHtml(a.unit)}" required
-            class="flex-1 min-w-[80px] py-2 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
+          ${isDistTime ? `
+            <input type="number" step="any" placeholder="Distance (${escapeHtml(a.unit)})" required
+              class="dist-input flex-1 min-w-[70px] py-2 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
+            <input type="number" step="any" placeholder="Time (min)" required
+              class="time-input flex-1 min-w-[70px] py-2 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
+          ` : `
+            <input type="number" step="any" placeholder="${escapeHtml(a.unit)}" required
+              class="amount-input flex-1 min-w-[80px] py-2 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
+          `}
           <input type="text" placeholder="Notes" class="notes-input py-2 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm flex-1 min-w-[100px]">
           <button type="submit" class="py-2 px-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors text-sm">Log</button>
         </form>
-      `).join("");
-    }
+      `;
+    }).join("");
   }
 }
 
@@ -627,12 +953,26 @@ function switchMember(userId) {
 async function logActivity(challengeId, activityId, event) {
   event.preventDefault();
   const form = event.target;
-  const amountInput = form.querySelector("input[type='number']");
-  const notesInput = form.querySelector("input.notes-input");
-  const amount = parseFloat(amountInput.value);
-  if (isNaN(amount)) return;
+
+  const distInput = form.querySelector(".dist-input");
+  const timeInput = form.querySelector(".time-input");
+  const amountInput = form.querySelector(".amount-input");
+  const notesInput = form.querySelector(".notes-input");
+
+  const isDistTime = distInput && timeInput;
+  let amount, timeAmount;
+
+  if (isDistTime) {
+    amount = parseFloat(distInput.value);
+    timeAmount = parseFloat(timeInput.value);
+    if (isNaN(amount) || isNaN(timeAmount)) return;
+  } else {
+    amount = parseFloat(amountInput.value);
+    if (isNaN(amount)) return;
+  }
 
   const body = { amount };
+  if (timeAmount != null) body.timeAmount = timeAmount;
   if (notesInput && notesInput.value.trim()) {
     body.notes = notesInput.value.trim();
   }
@@ -643,6 +983,13 @@ async function logActivity(challengeId, activityId, event) {
     body: JSON.stringify(body),
   });
   if (res.ok) {
+    const data = await res.json();
+    if (data.surprise) {
+      showToast(data.surprise.title, data.surprise.description, "surprise");
+    }
+    if (data.currencyEarned) {
+      showToast("Points Earned", `You earned ${data.currencyEarned} points!`, "success");
+    }
     showProgress(challengeId);
     loadAllData();
   } else {
@@ -668,6 +1015,8 @@ async function renderActivityLog(challengeId) {
       <span class="font-semibold text-slate-700">${escapeHtml(e.userEmail.split('@')[0])}</span>
       <span class="text-slate-500">${escapeHtml(e.activityName)}</span>
       <span class="text-green-600 font-medium">+${e.amount} ${escapeHtml(e.unit || "")}</span>
+      ${e.currencyEarned ? `<span class="text-amber-600 font-medium text-xs">+${e.currencyEarned} pts</span>` : ""}
+      ${e.timeAmount ? `<span class="text-slate-400 text-xs">time: ${e.timeAmount} min</span>` : ""}
       ${e.notes ? `<span class="text-slate-400 italic text-xs">— ${escapeHtml(e.notes)}</span>` : ""}
       <span class="text-slate-400 text-xs ml-auto">${timeAgo(e.recordedAt)}</span>
     </div>`;
@@ -902,6 +1251,7 @@ async function confirmRedemption(challengeId, prizeId, event) {
     const infoDiv = document.getElementById("redeem-prize-info");
     infoDiv.innerHTML = `<div class="text-center p-4 bg-green-50 rounded-xl font-bold text-green-700">✅ Redeemed! ${escapeHtml(data.prizeDescription)} for ${data.cost} pts.</div>`;
     document.getElementById("redeem-form").classList.add("hidden");
+    showToast("Prize Redeemed", data.prizeDescription, "success");
     loadAllData();
   } else {
     const data = await res.json();

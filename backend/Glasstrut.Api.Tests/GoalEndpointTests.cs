@@ -58,19 +58,19 @@ public class GoalEndpointTests : IClassFixture<CustomWebApplicationFactory>
             $"/api/challenges/{challenge.Id}/activities/{activityId}/log",
             new { amount = 50m });
         logResponse.EnsureSuccessStatusCode();
-        var progress = await logResponse.Content.ReadFromJsonAsync<GoalProgressResponse>();
-        Assert.Equal(50, progress!.CurrentValue);
-        Assert.False(progress.IsCompleted);
+        var logResult = await logResponse.Content.ReadFromJsonAsync<LogActivityResponse>();
+        Assert.Equal(50, logResult!.Progress.CurrentValue);
+        Assert.False(logResult.Progress.IsCompleted);
 
         // Log another 50km — total = 100, goal completes
         var completeResponse = await _client.PostAsJsonAsync(
             $"/api/challenges/{challenge.Id}/activities/{activityId}/log",
             new { amount = 50m });
         completeResponse.EnsureSuccessStatusCode();
-        var completed = await completeResponse.Content.ReadFromJsonAsync<GoalProgressResponse>();
-        Assert.Equal(100, completed!.CurrentValue);
-        Assert.True(completed.IsCompleted);
-        Assert.NotNull(completed.CompletedAt);
+        var completeResult = await completeResponse.Content.ReadFromJsonAsync<LogActivityResponse>();
+        Assert.Equal(100, completeResult!.Progress.CurrentValue);
+        Assert.True(completeResult.Progress.IsCompleted);
+        Assert.NotNull(completeResult.Progress.CompletedAt);
     }
 
     [Fact]
@@ -189,6 +189,8 @@ public class GoalEndpointTests : IClassFixture<CustomWebApplicationFactory>
     private record PrizeResponse(Guid Id, string Description, decimal? Cost);
     private record GoalProgressResponse(Guid Id, Guid GoalId, string GoalDescription, string GoalType,
         decimal? TargetValue, string? Unit, decimal CurrentValue, bool IsCompleted, DateTime? CompletedAt);
+    private record SurpriseResponse(string Title, string Description);
+    private record LogActivityResponse(GoalProgressResponse Progress, SurpriseResponse? Surprise);
     private record ProgressResponse(List<GoalProgressResponse> Progress, List<AchievementResponse> Achievements);
     private record AchievementResponse(Guid Id, string Title, string Description, bool IsHidden,
         DateTime CreatedAt, DateTime? UnlockedAt);

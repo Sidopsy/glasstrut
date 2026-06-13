@@ -261,9 +261,10 @@ public class ChallengeEndpointTests : IClassFixture<CustomWebApplicationFactory>
         var joinForm = new Dictionary<string, string> { { "inviteCode", family!.InviteCode } };
         await _client.PostAsync("/api/families/join", new FormUrlEncodedContent(joinForm));
 
-        // Get the second user's ID from token
-        var jwtPayload = System.Text.Encoding.UTF8.GetString(
-            Convert.FromBase64String(token2.Split('.')[1].PadRight(token2.Split('.')[1].Length % 4 == 0 ? 0 : 4, '=')));
+        // Get the second user's ID from token (JWT uses base64url)
+        var b64 = token2.Split('.')[1].Replace('-', '+').Replace('_', '/');
+        b64 = b64.PadRight(b64.Length + (4 - b64.Length % 4) % 4, '=');
+        var jwtPayload = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(b64));
         var user2Id = System.Text.Json.JsonSerializer
             .Deserialize<System.Text.Json.JsonElement>(jwtPayload)
             .GetProperty("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")

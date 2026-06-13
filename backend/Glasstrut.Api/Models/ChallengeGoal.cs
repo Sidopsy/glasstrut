@@ -9,6 +9,8 @@ public class ChallengeGoal
     public string Type { get; set; } = "Achievement";
     public decimal? TargetValue { get; set; }
     public string? Unit { get; set; }
+    public bool IsHidden { get; set; }
     public DateTime CreatedAt { get; set; }
     public ICollection<ChallengeActivity> Activities { get; set; } = new List<ChallengeActivity>();
+    public ICollection<ChallengePrize> Prizes { get; set; } = new List<ChallengePrize>();
 }

@@ -27,3 +27,9 @@
 
 .goal-bar { height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; }
 .goal-bar-fill { height: 100%; background: #4f46e5; border-radius: 4px; transition: width 0.3s; }
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-slide-down { animation: slideDown 0.35s ease-out; }

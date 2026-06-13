@@ -29,6 +29,9 @@ public class RedeemService : IRedeemService
             .FirstOrDefaultAsync(p => p.Id == prizeId && p.ChallengeId == challengeId)
             ?? throw new InvalidOperationException("Prize not found.");
 
+        if (!prize.HasQR)
+            throw new InvalidOperationException("QR codes are not enabled for this prize.");
+
         var baseUrl = GetBaseUrl();
         var payload = $"{baseUrl}/?claim={challengeId}:{prizeId}";
 
@@ -41,44 +44,41 @@ public class RedeemService : IRedeemService
     public async Task<PrizeRedeemResponse> RedeemPrizeAsync(string userId, Guid challengeId, Guid prizeId)
     {
         var challenge = await _db.Challenges
+            .Include(c => c.Goals)
             .FirstOrDefaultAsync(c => c.Id == challengeId)
             ?? throw new InvalidOperationException("Challenge not found.");
 
         await VerifyAccessAsync(userId, challenge);
 
         var prize = await _db.ChallengePrizes
+            .Include(p => p.Goal)
             .FirstOrDefaultAsync(p => p.Id == prizeId && p.ChallengeId == challengeId)
             ?? throw new InvalidOperationException("Prize not found.");
 
-        if (!prize.Cost.HasValue)
-            throw new InvalidOperationException("This prize has no cost.");
-
-        var currencyGoalIds = await _db.ChallengeGoals
-            .Where(g => g.ChallengeId == challenge.Id && g.Type == "Currency")
-            .Select(g => g.Id)
-            .ToListAsync();
-
-        decimal totalPoints = 0;
-        if (currencyGoalIds.Count != 0)
+        // If prize is linked to an Achievement goal, verify goal is completed
+        if (prize.ChallengeGoalId.HasValue && prize.Goal?.Type == "Achievement")
         {
-            totalPoints = await _db.GoalProgresses
-                .Where(p => currencyGoalIds.Contains(p.ChallengeGoalId) && p.UserId == userId)
-                .SumAsync(p => p.CurrentValue);
+            var goalProgress = await _db.GoalProgresses
+                .FirstOrDefaultAsync(p => p.ChallengeGoalId == prize.ChallengeGoalId && p.UserId == userId);
+            if (goalProgress == null || !goalProgress.IsCompleted)
+                throw new InvalidOperationException("Complete the linked goal before redeeming this prize.");
         }
 
-        if (totalPoints < prize.Cost.Value)
-            throw new InvalidOperationException(
-                $"Not enough points. You have {totalPoints}, but this prize costs {prize.Cost}.");
-
-        if (currencyGoalIds.Count != 0)
+        // Only deduct cost for challenges with a currency
+        if (prize.Cost.HasValue && prize.Cost > 0 && !string.IsNullOrEmpty(challenge.CurrencyName))
         {
-            var progress = await _db.GoalProgresses
-                .FirstOrDefaultAsync(p => currencyGoalIds.Contains(p.ChallengeGoalId) && p.UserId == userId);
+            var balance = await _db.ChallengeCurrencyBalances
+                .FirstOrDefaultAsync(b => b.ChallengeId == challengeId && b.UserId == userId);
 
-            if (progress != null)
+            var currentBalance = balance?.Balance ?? 0;
+            if (currentBalance < prize.Cost.Value)
+                throw new InvalidOperationException(
+                    $"Not enough {challenge.CurrencyName}. You have {currentBalance}, but this prize costs {prize.Cost}.");
+
+            if (balance != null)
             {
-                progress.CurrentValue -= prize.Cost.Value;
-                progress.UpdatedAt = DateTime.UtcNow;
+                balance.Balance -= prize.Cost.Value;
+                balance.UpdatedAt = DateTime.UtcNow;
             }
         }
 
@@ -96,7 +96,7 @@ public class RedeemService : IRedeemService
         return new PrizeRedeemResponse(
             claim.Id,
             prize.Description,
-            prize.Cost.Value,
+            prize.Cost ?? 0,
             null,
             claim.ClaimedAt
         );

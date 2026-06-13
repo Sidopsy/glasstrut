@@ -18,6 +18,7 @@ public class AppDbContext : IdentityDbContext<User>
     public DbSet<Achievement> Achievements => Set<Achievement>();
     public DbSet<UserAchievement> UserAchievements => Set<UserAchievement>();
     public DbSet<PrizeClaim> PrizeClaims => Set<PrizeClaim>();
+    public DbSet<ChallengeCurrencyBalance> ChallengeCurrencyBalances => Set<ChallengeCurrencyBalance>();
 
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
@@ -91,6 +92,10 @@ public class AppDbContext : IdentityDbContext<User>
                   .WithMany(c => c.Prizes)
                   .HasForeignKey(e => e.ChallengeId)
                   .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.Goal)
+                  .WithMany(g => g.Prizes)
+                  .HasForeignKey(e => e.ChallengeGoalId)
+                  .OnDelete(DeleteBehavior.SetNull);
         });
 
         builder.Entity<ChallengeTarget>(entity =>
@@ -166,6 +171,20 @@ public class AppDbContext : IdentityDbContext<User>
             entity.HasOne(e => e.Achievement)
                   .WithMany(a => a.UserAchievements)
                   .HasForeignKey(e => e.AchievementId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.User)
+                  .WithMany()
+                  .HasForeignKey(e => e.UserId)
+                  .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        builder.Entity<ChallengeCurrencyBalance>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.ChallengeId, e.UserId }).IsUnique();
+            entity.HasOne(e => e.Challenge)
+                  .WithMany()
+                  .HasForeignKey(e => e.ChallengeId)
                   .OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(e => e.User)
                   .WithMany()

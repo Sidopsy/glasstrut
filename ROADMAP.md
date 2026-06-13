@@ -1,11 +1,11 @@
 # Roadmap
 
 ## Phase 1 — Foundation
-- [x] Initialize frontend (HTMX static site skeleton)
-- [x] Initialize .NET Web API backend
+- [x] Initialize frontend (Vanilla JS + Tailwind static site skeleton)
+- [x] Initialize .NET 10 Web API backend
 - [x] Set up GitHub Pages deployment for frontend
 - [x] Set up PWA manifest + service worker
-- [x] Set up database schema (SQLite / local DB)
+- [x] Set up database schema (SQLite)
 
 ## Phase 2 — Authentication
 - [x] User registration (email + password)
@@ -20,7 +20,7 @@
 ## Phase 4 — Challenges
 - [x] Create challenge (family-wide, self-only, targeted)
 - [x] Optional time constraints
-- [x] Multiple goals per challenge ("prime directives")
+- [x] Multiple goals per challenge
 - [x] Multiple prizes per challenge
 - [x] Activities as modes of achieving goals (running, mowing, etc.)
 - [x] Goal types: Achievement (target-based) or Currency (point accumulation)
@@ -31,22 +31,58 @@
 - [x] Achievement system
 - [x] Achievement display
 
-## Phase 6 — Progress & Dashboard (complete)
+## Phase 6 — Progress & Dashboard
 - [x] Challenge progress views (member tabs for family challenges, activity history log)
-- [x] User dashboard (stats row, challenge summaries, achievement counts)
-- [x] Activity log endpoint + frontend display (+ `renderActivityLog`, `renderAchievements`)
+- [x] User dashboard (challenge summaries, achievement counts)
+- [x] Activity log endpoint + frontend display
 - [x] Multi-user progress endpoint (`GET /api/challenges/{id}/progress/members`)
 - [ ] Notifications (optional)
 
-## Phase 7 — QR Reward Redemption (complete)
+## Phase 7 — QR Reward Redemption
 - [x] QR code generation for prizes (server-side with QRCoder)
 - [x] Static QR encodes challenge+prize IDs (`{baseUrl}/?claim=challengeId:prizeId`)
-- [x] Point deduction + prize fulfillment (deducts from first Currency goal's progress)
-- [x] Printable reward coupon view (opens print dialog with styled layout)
-- [x] Redemption history per challenge (`GET /api/challenges/{id}/claims`)
+- [x] Point deduction + prize fulfillment
+- [x] Printable reward coupon view
+- [x] Redemption history per challenge
 
-## Phase 8 — Polish
-- [ ] Styling (Tailwind / CSS)
-- [ ] Offline support (PWA caching)
-- [ ] Testing
-- [ ] Documentation
+## Phase 8 — UI Redesign & Challenge Enhancements
+- [x] Tailwind CSS via CDN replaces custom CSS
+- [x] 4-tab layout with bottom navigation
+- [x] Auth view redesign with login/register toggle
+- [x] Home tab with greeting, points, Up Next cards, activity feed
+- [x] Quests tab with challenge list + detail + activity logging
+- [x] Treasury tab with prize list, claims, QR scanner
+- [x] Profile tab with achievements, family management, logout
+- [x] In-app QR scanner (`getUserMedia` + `jsQR`)
+- [x] Hidden goals (`ChallengeGoal.IsHidden`)
+- [x] Activity types (Distance/Time/DistanceAndTime/Occurrence)
+- [x] DistanceAndTime dual-input progress logging
+- [x] QR toggle per prize (`ChallengePrize.HasQR`)
+- [x] Goal-linked prizes (`ChallengePrize.ChallengeGoalId`)
+- [x] Toast notifications for hidden goal discoveries + redemptions
+- [x] Challenge edit via `PUT /api/challenges/{id}` with smart-merge
+- [x] Edit button visible to challenge creator
+- [x] Create/edit modal with dynamic goal/prize/activity rows
+
+## Phase 9 — Username Auth
+- [x] `IdentityUser.UserName` now used as actual username (previously set to email)
+- [x] Login accepts username or email
+- [x] Registration accepts optional username (falls back to email prefix)
+- [x] Username displayed in frontend dashboard, avatar initial uses username
+- [x] JWT includes `Name` claim with username
+- [x] Frontend registration form shows username input; login form hides it
+- [x] Duplicate username check on registration
+
+## Phase 10 — Currency Overhaul & Streak Counter
+- [x] `ChallengeCurrencyBalance` table (per-user, per-challenge balance)
+- [x] `ProgressEntry.CurrencyEarned` stores per-activity points earned
+- [x] Currency earned is `amount × activity.PointValue` when challenge has `CurrencyName`
+- [x] Balance upserted and deducted on activity log / prize redemption
+- [x] Remove Currency goal type from create/edit modal (replaced by per-challenge currency)
+- [x] RedeemService now uses `ChallengeCurrencyBalance` instead of `GoalProgress` sum
+- [x] Streak counter tracks consecutive days of activity per challenge
+- [x] Streak logic: same day → unchanged, yesterday → increment, earlier → reset to 1
+- [x] Balance + streak displayed in self and family progress views
+- [x] `currencyEarned` shown in activity log entries + toast on log
+- [x] `refreshPoints()` sums `currencyBalance` across all challenges with matching currency
+- [ ] Notifications (optional)

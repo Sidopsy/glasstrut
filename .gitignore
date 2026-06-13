@@ -4,3 +4,5 @@ obj/
 *.db
 *.db-shm
 *.db-wal
+appsettings.Production.json
+config.local.js

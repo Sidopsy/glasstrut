@@ -3,7 +3,16 @@ namespace Glasstrut.Api.Models.Dtos;
 public record CreateActivityDto(
     string Name,
     string Unit,
-    decimal PointValue
+    decimal PointValue,
+    string ActivityType = "Occurrence"
+);
+
+public record UpdateActivityDto(
+    Guid? Id,
+    string Name,
+    string Unit,
+    decimal PointValue,
+    string ActivityType = "Occurrence"
 );
 
 public record CreateGoalDto(
@@ -11,12 +20,15 @@ public record CreateGoalDto(
     string Type = "Achievement",
     decimal? TargetValue = null,
     string? Unit = null,
+    bool IsHidden = false,
     List<CreateActivityDto>? Activities = null
 );
 
 public record CreatePrizeDto(
     string Description,
-    decimal? Cost = null
+    decimal? Cost = null,
+    bool HasQR = true,
+    Guid? ChallengeGoalId = null
 );
 
 public record CreateChallengeRequest(
@@ -32,6 +44,34 @@ public record CreateChallengeRequest(
     string? CurrencyName = null
 );
 
+public record UpdateGoalDto(
+    Guid? Id,
+    string Description,
+    string Type = "Achievement",
+    decimal? TargetValue = null,
+    string? Unit = null,
+    bool IsHidden = false,
+    List<UpdateActivityDto>? Activities = null
+);
+
+public record UpdatePrizeDto(
+    Guid? Id,
+    string Description,
+    decimal? Cost = null,
+    bool HasQR = true,
+    Guid? ChallengeGoalId = null
+);
+
+public record UpdateChallengeRequest(
+    string Title,
+    string Description,
+    DateTime? StartDate,
+    DateTime? EndDate,
+    List<UpdateGoalDto>? Goals,
+    List<UpdatePrizeDto>? Prizes,
+    string? CurrencyName = null
+);
+
 public record ChallengeDto(
     Guid Id,
     string Title,
@@ -42,6 +82,7 @@ public record ChallengeDto(
     DateTime? EndDate,
     DateTime CreatedAt,
     string? CurrencyName,
+    string CreatedById,
     List<ChallengeGoalDto> Goals,
     List<ChallengePrizeDto> Prizes,
     List<string> TargetUserIds
@@ -50,6 +91,7 @@ public record ChallengeDto(
 public record ChallengeActivityDto(
     Guid Id,
     string Name,
+    string ActivityType,
     string Unit,
     decimal PointValue
 );
@@ -60,11 +102,14 @@ public record ChallengeGoalDto(
     string Type,
     decimal? TargetValue,
     string? Unit,
+    bool IsHidden,
     List<ChallengeActivityDto> Activities
 );
 
 public record ChallengePrizeDto(
     Guid Id,
     string Description,
-    decimal? Cost
+    decimal? Cost,
+    bool HasQR,
+    Guid? ChallengeGoalId
 );

@@ -4,14 +4,14 @@ Simple family challenge PWA. HTMX frontend (GitHub Pages) + .NET backend (local)
 
 ## Stack
 
-- **Frontend:** HTMX, plain CSS or Tailwind, static site on GitHub Pages
-- **Backend:** .NET Web API, runs locally
-- **Auth:** Email + password
+- **Frontend:** Vanilla JS + Tailwind CSS (CDN), static site on GitHub Pages
+- **Backend:** .NET 10 Web API (minimal API, service + repo layers), SQLite
+- **Auth:** Email + password via ASP.NET Core Identity + JWT
 - **PWA:** Yes (service worker + manifest)
 
 ## Requirements
 
-- Users register/login with email + password
+- Users register/login with email + password (username planned)
 - Users create/join families
 - Challenges can be family-wide, self-only, or targeted at specific members
 - Challenges have optional time constraints, one or many goals, one or many prizes
@@ -33,7 +33,7 @@ Simple family challenge PWA. HTMX frontend (GitHub Pages) + .NET backend (local)
 ```
 backend/Glasstrut.Api/      — .NET 10 Web API (minimal API, service + repo layers)
 backend/Glasstrut.Api.Tests/ — xUnit integration tests
-frontend/                   — HTMX static site (published to GitHub Pages)
+frontend/                   — Vanilla JS + Tailwind static site (published to GitHub Pages)
 .github/workflows/          — CI / deployment
 ```
 
@@ -64,19 +64,55 @@ dotnet test
 
 ## Current status
 
-Phase 1 (Foundation) complete. Phase 2 (Authentication) complete. Phase 3 (Families) complete. Phase 4 (Challenges) complete. Phase 5 (Goals & Achievements) complete. Phase 6 (Progress & Dashboard) mostly complete. Phase 7 (QR Reward Redemption) complete.
+Phase 1–5 complete (Foundation, Auth, Families, Challenges, Goals & Achievements).
+Phase 6–7 complete (Progress & Dashboard, QR Reward Redemption).
+Phase 8 UI redesign + challenge enhancements done.
+Phase 9 Username Auth complete.
+Phase 10 Currency Overhaul & Streak Counter complete.
 
-- QR redemption: server-side generation with QRCoder, token-based URLs
-- `POST /api/challenges/{id}/prizes/{prizeId}/generate-redemption` — creates token + returns QR URL
-- `GET /api/redeem/{token}/qr` — returns QR code PNG image (unauthenticated, for printing)
-- `POST /api/redeem/{token}` — redeems prize, deducts points from currency goal balance
-- Frontend: modal with printable reward coupon card (large QR + prize details, print button)
+### Phase 8 — UI Redesign & Challenge Enhancements (complete)
+- Tailwind CSS via CDN replaces most custom CSS
+- 4-tab layout with bottom navigation: Home, Quests, Treasury, Profile
+- Auth view redesigned: single form with login/register toggle, emoji-labeled inputs, email validation
+- Home tab: day-based greeting header, points display, horizontal "Up Next" challenge cards, "Family Chronicles" activity feed
+- Quests tab: challenge list with create button (modal), detail view with activity logging
+- Treasury tab: QR scanner button, prize listing grouped by challenge, claim history
+- Profile tab: achievements wall, family management, logout
+- In-app QR scanner: camera via `getUserMedia`, frame decode with `jsQR`, auto-redemption flow
+- Challenge model enhancements:
+  - `ChallengeGoal.IsHidden` (bool) — secret milestones
+  - `ChallengePrize.HasQR` (bool) — QR generation toggle
+  - `ChallengePrize.ChallengeGoalId` (Guid?) — FK linking prize to specific goal
+  - `ChallengeActivity.ActivityType` (string: Distance/Time/DistanceAndTime/Occurrence)
+  - `ProgressEntry.TimeAmount` (decimal?) — secondary value for DistanceAndTime activities
+- GoalService: auto-claim hidden goal prizes, return SurpriseDto, filter hidden goals from non-completing viewers
+- RedeemService: HasQR check, skip cost for goal-linked prizes, verify linked goal completion
+- `PUT /api/challenges/{id}` endpoint with smart-merge update logic
+- Create/edit challenge modal with dynamic goal/prize/activity rows
+- DistanceAndTime dual-input forms in activity logging
+- Toast notifications for hidden goal discoveries and prize redemptions
+- Edit button on challenge cards (visible to creator only)
 
-- Activities as first-class concepts: each goal has one or more activities (named modes of achieving, e.g. "Running" → "km", "Mow lawn" → "times")
-- Goal types: Achievement (target-based) or Currency (point accumulation via activities)
-- Activity-based progress logging: log an activity with amount, system calculates `delta = amount * activity.PointValue`
-- Goal progress auto-completes when `CurrentValue >= TargetValue`; achievements auto-awarded on completion
-- Multi-user progress view: family challenges show tabs per member with individual progress bars
-- Activity log: `GET /api/challenges/{id}/activity-log` returns recent entries with user, activity, amount, notes
-- Dashboard stats row shows active challenge count and goal completion summary
-- Challenge cards show completion summary + SelfOnly/Family badge + currency badge
+### Phase 9 — Username Auth (complete)
+- `IdentityUser.UserName` now used as actual username (previously set to email)
+- Login accepts username or email
+- Registration accepts optional username (falls back to email prefix)
+- Username displayed in frontend dashboard; avatar initial uses username
+- JWT includes `Name` claim with username
+- Duplicate username check on registration
+- Full test coverage: 67 tests pass
+
+### Phase 10 — Currency Overhaul & Streak Counter (complete)
+- New `ChallengeCurrencyBalance` table stores per-user, per-challenge currency balance
+- `ProgressEntry.CurrencyEarned` (decimal?) records per-activity points earned
+- Currency earned = `amount × activity.PointValue` when challenge has `CurrencyName`
+- `GoalService.LogActivityAsync` upserts balance, updates streak counter
+  - Same-day activity: streak unchanged
+  - Yesterday: streak increments
+  - Earlier: streak resets to 1
+- `RedeemService.RedeemPrizeAsync` uses `ChallengeCurrencyBalance.Balance` instead of summing Currency goal progress
+- Currency goal type removed from create/edit modal (replaced by per-challenge currency)
+- Frontend: balance + streak displayed in progress views, `currencyEarned` shown in activity log + toast
+- `refreshPoints()` sums `p.currencyBalance` across challenges
+- Migration: `AddCurrencyBalanceAndStreak`
+- Full test coverage: 67 tests still pass

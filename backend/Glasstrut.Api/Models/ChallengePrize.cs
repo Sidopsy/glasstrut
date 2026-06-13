@@ -7,5 +7,8 @@ public class ChallengePrize
     public Challenge Challenge { get; set; } = null!;
     public string Description { get; set; } = string.Empty;
     public decimal? Cost { get; set; }
+    public bool HasQR { get; set; } = true;
+    public Guid? ChallengeGoalId { get; set; }
+    public ChallengeGoal? Goal { get; set; }
     public DateTime CreatedAt { get; set; }
 }

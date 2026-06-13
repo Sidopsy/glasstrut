@@ -1,0 +1,4 @@
+// Rename to config.local.js (gitignored) to override the API_BASE for local development.
+// This is only needed if the auto-detection in config.js doesn't work for your setup.
+
+var LOCAL_API_BASE = 'http://localhost:5088';

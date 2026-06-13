@@ -8,7 +8,9 @@ public class ProgressEntry
     public string UserId { get; set; } = string.Empty;
     public User User { get; set; } = null!;
     public decimal Amount { get; set; }
+    public decimal? TimeAmount { get; set; }
     public string? Unit { get; set; }
+    public decimal? CurrencyEarned { get; set; }
     public string? Notes { get; set; }
     public DateTime RecordedAt { get; set; }
     public DateTime CreatedAt { get; set; }

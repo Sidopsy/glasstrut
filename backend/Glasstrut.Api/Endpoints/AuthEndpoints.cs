@@ -10,7 +10,7 @@ public static class AuthEndpoints
         app.MapPost("/api/auth/register", async (HttpRequest request, IAuthService auth) =>
         {
             var form = await request.ReadFormAsync();
-            var dto = new RegisterRequest(form["email"]!, form["password"]!);
+            var dto = new RegisterRequest(form["email"]!, form["password"]!, form["username"]);
             try
             {
                 var result = await auth.RegisterAsync(dto);

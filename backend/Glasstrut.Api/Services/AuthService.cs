@@ -25,7 +25,13 @@ public class AuthService : IAuthService
         if (existing != null)
             throw new InvalidOperationException("Email already registered.");
 
-        var user = new User { UserName = request.Email, Email = request.Email };
+        var username = !string.IsNullOrWhiteSpace(request.Username) ? request.Username : request.Email.Split('@')[0];
+
+        var existingUser = await _userManager.FindByNameAsync(username);
+        if (existingUser != null)
+            throw new InvalidOperationException("Username already taken.");
+
+        var user = new User { UserName = username, Email = request.Email };
         var result = await _userManager.CreateAsync(user, request.Password);
 
         if (!result.Succeeded)
@@ -33,17 +39,18 @@ public class AuthService : IAuthService
                 string.Join("; ", result.Errors.Select(e => e.Description)));
 
         var token = GenerateToken(user);
-        return new AuthResponse(token, user.Email!);
+        return new AuthResponse(token, user.Email!, user.UserName);
     }
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request)
     {
-        var user = await _userManager.FindByEmailAsync(request.Email);
+        var user = await _userManager.FindByEmailAsync(request.Email)
+                    ?? await _userManager.FindByNameAsync(request.Email);
         if (user == null || !await _userManager.CheckPasswordAsync(user, request.Password))
-            throw new UnauthorizedAccessException("Invalid email or password.");
+            throw new UnauthorizedAccessException("Invalid credentials.");
 
         var token = GenerateToken(user);
-        return new AuthResponse(token, user.Email!);
+        return new AuthResponse(token, user.Email!, user.UserName);
     }
 
     private string GenerateToken(User user)
@@ -56,7 +63,8 @@ public class AuthService : IAuthService
         var claims = new[]
         {
             new Claim(ClaimTypes.NameIdentifier, user.Id),
-            new Claim(ClaimTypes.Email, user.Email!)
+            new Claim(ClaimTypes.Email, user.Email!),
+            new Claim(ClaimTypes.Name, user.UserName ?? ""),
         };
 
         var token = new JwtSecurityToken(

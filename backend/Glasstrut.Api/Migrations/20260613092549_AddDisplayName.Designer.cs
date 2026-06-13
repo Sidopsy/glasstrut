@@ -3,6 +3,7 @@ using System;
 using Glasstrut.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Glasstrut.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260613092549_AddDisplayName")]
+    partial class AddDisplayName
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.8");
@@ -130,41 +133,6 @@ namespace Glasstrut.Api.Migrations
                     b.HasIndex("ChallengeId");
 
                     b.ToTable("ChallengeActivities");
-                });
-
-            modelBuilder.Entity("Glasstrut.Api.Models.ChallengeCurrencyBalance", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<decimal>("Balance")
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid>("ChallengeId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("CurrentStreak")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime?>("LastActivityDate")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UserId");
-
-                    b.HasIndex("ChallengeId", "UserId")
-                        .IsUnique();
-
-                    b.ToTable("ChallengeCurrencyBalances");
                 });
 
             modelBuilder.Entity("Glasstrut.Api.Models.ChallengeGoal", b =>
@@ -404,9 +372,6 @@ namespace Glasstrut.Api.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<decimal?>("CurrencyEarned")
                         .HasColumnType("TEXT");
 
                     b.Property<Guid?>("GoalProgressId")
@@ -705,25 +670,6 @@ namespace Glasstrut.Api.Migrations
                     b.Navigation("Challenge");
 
                     b.Navigation("Goal");
-                });
-
-            modelBuilder.Entity("Glasstrut.Api.Models.ChallengeCurrencyBalance", b =>
-                {
-                    b.HasOne("Glasstrut.Api.Models.Challenge", "Challenge")
-                        .WithMany()
-                        .HasForeignKey("ChallengeId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Glasstrut.Api.Models.User", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Challenge");
-
-                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Glasstrut.Api.Models.ChallengeGoal", b =>

@@ -23,6 +23,15 @@
       <form id="login-form">
         <h2 class="text-xl font-bold text-slate-800 mb-4" id="auth-form-title">Log In</h2>
 
+        <div id="auth-username-group" class="mb-4 hidden">
+          <label class="text-sm font-semibold text-slate-700">Username</label>
+          <div class="flex items-center gap-3 mt-1">
+            <span class="h-6 w-6 text-slate-500 flex items-center justify-center text-lg">👤</span>
+            <input type="text" id="auth-username" placeholder="your_username"
+              class="w-full py-4 px-3 bg-slate-100 text-slate-800 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none">
+          </div>
+        </div>
+
         <div class="mb-4">
           <label class="text-sm font-semibold text-slate-700">Email</label>
           <div class="flex items-center gap-3 mt-1">
@@ -198,6 +207,63 @@
         </form>
       </div>
     </div>
+
+    <!-- Create/Edit Challenge Modal -->
+    <div id="challenge-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-3xl p-6 shadow-lg max-w-md w-full max-h-[90vh] overflow-y-auto">
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="text-xl font-bold text-slate-800" id="challenge-modal-title">Create Challenge</h3>
+          <button onclick="closeChallengeModal()" class="text-slate-500 text-2xl leading-none">&times;</button>
+        </div>
+        <form id="challenge-form" class="flex flex-col gap-3" onsubmit="submitChallenge(event)">
+          <input type="hidden" id="challenge-edit-id">
+          <input type="text" id="challenge-title" placeholder="Challenge title" required
+            class="w-full py-3 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none">
+          <input type="text" id="challenge-description" placeholder="Description"
+            class="w-full py-3 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none">
+          <div>
+            <label class="text-sm font-semibold text-slate-700">Type</label>
+            <select id="challenge-type" onchange="toggleChallengeFamilySelect()"
+              class="w-full py-3 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none">
+              <option value="SelfOnly">Personal Challenge</option>
+              <option value="FamilyWide">Family Challenge</option>
+            </select>
+          </div>
+          <div id="family-select-group" class="hidden">
+            <label class="text-sm font-semibold text-slate-700">Family</label>
+            <select id="challenge-family"
+              class="w-full py-3 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none">
+              <option value="">Select a family...</option>
+            </select>
+          </div>
+          <input type="text" id="challenge-currency" placeholder="Currency name (optional, e.g. Ice Cream Points)"
+            class="w-full py-3 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none">
+
+          <!-- Goals Section -->
+          <div class="border-t border-slate-200 pt-3 mt-1">
+            <div class="flex justify-between items-center mb-2">
+              <label class="text-sm font-bold text-slate-700">Goals</label>
+              <button type="button" onclick="addGoalField()" class="text-xs font-bold bg-indigo-100 text-indigo-700 px-3 py-1 rounded-xl hover:bg-indigo-200">+ Add Goal</button>
+            </div>
+            <div id="goals-container"></div>
+          </div>
+
+          <!-- Prizes Section -->
+          <div class="border-t border-slate-200 pt-3 mt-1">
+            <div class="flex justify-between items-center mb-2">
+              <label class="text-sm font-bold text-slate-700">Prizes</label>
+              <button type="button" onclick="addPrizeField()" class="text-xs font-bold bg-indigo-100 text-indigo-700 px-3 py-1 rounded-xl hover:bg-indigo-200">+ Add Prize</button>
+            </div>
+            <div id="prizes-container"></div>
+          </div>
+
+          <button type="submit" class="w-full py-4 bg-green-500 text-white font-bold rounded-xl hover:bg-green-600 transition-colors" id="challenge-submit-btn">Create</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast-container" class="fixed top-4 left-1/2 -translate-x-1/2 z-[2000] flex flex-col gap-2 w-[90%] max-w-sm pointer-events-none"></div>
 
   </section>
 
