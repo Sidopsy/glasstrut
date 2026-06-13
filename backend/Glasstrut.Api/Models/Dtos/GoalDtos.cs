@@ -7,7 +7,7 @@ public record LogProgressRequest(
 );
 
 public record LogActivityResponse(
-    GoalProgressDto Progress,
+    GoalProgressDto? Progress,
     SurpriseDto? Surprise = null,
     decimal? CurrencyEarned = null
 );
@@ -64,8 +64,8 @@ public record ActivityLogEntryDto(
     Guid Id,
     string UserEmail,
     string ActivityName,
-    string GoalDescription,
-    string GoalType,
+    string? GoalDescription,
+    string? GoalType,
     decimal Amount,
     decimal? TimeAmount,
     string? Unit,

@@ -372,6 +372,7 @@ function renderUpNext() {
     const p = cachedProgressMap[c.id];
     const completed = p ? p.progress.filter(g => g.isCompleted).length : 0;
     const total = p ? p.progress.length : c.goals.length;
+    const summary = total > 0 ? `${completed}/${total} goals done` : `${c.activities && c.activities.length > 0 ? c.activities.length : 0} activities`;
     const emoji = EMOJIS[i % EMOJIS.length];
     const badgeColor = c.type === "SelfOnly" ? "text-orange-500 bg-orange-50" : "text-blue-500 bg-blue-50";
     return `
@@ -382,7 +383,7 @@ function renderUpNext() {
             <span class="font-bold ${badgeColor} px-2 py-1 rounded-lg text-sm">${c.type === "SelfOnly" ? "Personal" : "Family"}</span>
           </div>
           <h3 class="font-bold text-lg text-slate-700 leading-tight">${escapeHtml(c.title)}</h3>
-          <p class="text-xs text-slate-500 mt-1">${completed}/${total} goals done</p>
+          <p class="text-xs text-slate-500 mt-1">${summary}</p>
         </div>
         ${c.currencyName && total > 0 ? `<div class="mt-3 text-sm font-semibold text-indigo-600">${completed}/${total} &middot; ${escapeHtml(c.currencyName)}</div>` : ""}
       </div>
@@ -463,6 +464,7 @@ function showCreateChallengeForm() {
   document.getElementById("challenge-type").value = "SelfOnly";
   document.getElementById("challenge-currency").value = "";
   document.getElementById("goals-container").innerHTML = "";
+  document.getElementById("challenge-activities-container").innerHTML = "";
   document.getElementById("prizes-container").innerHTML = "";
   toggleChallengeFamilySelect();
 
@@ -499,6 +501,11 @@ function showEditChallengeForm(challengeId) {
     c.goals.forEach(g => addGoalField(g));
   } else {
     addGoalField();
+  }
+
+  document.getElementById("challenge-activities-container").innerHTML = "";
+  if (c.activities && c.activities.length > 0) {
+    c.activities.forEach(a => addChallengeActivityField(a));
   }
 
   document.getElementById("prizes-container").innerHTML = "";
@@ -586,6 +593,32 @@ function addActivityToGoal(btn) {
 
 function reindexGoals() {
   // not strictly needed but keeps things tidy
+}
+
+function addChallengeActivityField(activity) {
+  const container = document.getElementById("challenge-activities-container");
+  const div = document.createElement("div");
+  div.className = "challenge-activity-field mb-1";
+  if (activity && activity.id) div.dataset.editId = activity.id;
+  div.innerHTML = `
+    <div class="flex items-center gap-1.5">
+      ${activity && activity.id ? `<input type="hidden" class="act-id" value="${activity.id}">` : ""}
+      <input type="text" placeholder="Name" value="${activity ? escapeHtml(activity.name) : ""}" required
+        class="act-name flex-1 min-w-0 py-1.5 px-2 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-xs">
+      <select class="act-type py-1.5 px-1 bg-white rounded-lg border border-slate-200 text-xs">
+        <option value="Occurrence" ${activity && activity.activityType === "Occurrence" ? "selected" : ""}>Occurrence</option>
+        <option value="Distance" ${activity && activity.activityType === "Distance" ? "selected" : ""}>Distance</option>
+        <option value="Time" ${activity && activity.activityType === "Time" ? "selected" : ""}>Time</option>
+        <option value="DistanceAndTime" ${activity && activity.activityType === "DistanceAndTime" ? "selected" : ""}>Dist+Time</option>
+      </select>
+      <input type="text" placeholder="Unit" value="${activity ? escapeHtml(activity.unit) : ""}" required
+        class="act-unit w-16 py-1.5 px-1 bg-white rounded-lg border border-slate-200 text-xs">
+      <input type="number" step="any" placeholder="Pts" value="${activity ? activity.pointValue : "1"}" required
+        class="act-points w-14 py-1.5 px-1 bg-white rounded-lg border border-slate-200 text-xs">
+      <button type="button" onclick="this.closest('.challenge-activity-field').remove()" class="text-red-400 hover:text-red-600 text-xs">&times;</button>
+    </div>
+  `;
+  container.appendChild(div);
 }
 
 function addPrizeField(prize, allGoals) {
@@ -726,9 +759,24 @@ async function submitChallenge(event) {
     }
   });
 
+  const challengeActivities = [];
+  document.querySelectorAll("#challenge-activities-container .challenge-activity-field").forEach(a => {
+    const actIdInput = a.querySelector(".act-id");
+    const name = a.querySelector(".act-name").value;
+    const activityType = a.querySelector(".act-type").value;
+    const actUnit = a.querySelector(".act-unit").value;
+    const pointValue = a.querySelector(".act-points").value;
+    if (name && actUnit && pointValue) {
+      const act = { name, activityType, unit: actUnit, pointValue: parseFloat(pointValue) };
+      if (actIdInput && actIdInput.value) act.id = actIdInput.value;
+      challengeActivities.push(act);
+    }
+  });
+
   const body = {
     title, description, type, familyId: familyId || null,
     goals, prizes,
+    activities: challengeActivities.length > 0 ? challengeActivities : null,
   };
   if (currencyName) body.currencyName = currencyName;
 
@@ -762,6 +810,7 @@ function renderQuestList() {
     const p = cachedProgressMap[c.id];
     const completed = p ? p.progress.filter(g => g.isCompleted).length : 0;
     const total = p ? p.progress.length : c.goals.length;
+    const summary = total > 0 ? `${completed}/${total} goals` : `${c.activities && c.activities.length > 0 ? c.activities.length : 0} activities`;
     const emoji = EMOJIS[i % EMOJIS.length];
     const isCreator = c.createdById && currentUserId && c.createdById === currentUserId;
     return `
@@ -773,7 +822,7 @@ function renderQuestList() {
               <span class="font-bold text-slate-800 truncate">${escapeHtml(c.title)}</span>
               <span class="text-xs font-bold ${c.type === 'SelfOnly' ? 'text-orange-500 bg-orange-50' : 'text-blue-500 bg-blue-50'} px-2 py-0.5 rounded-full shrink-0">${c.type === "SelfOnly" ? "Personal" : "Family"}</span>
             </div>
-            <p class="text-xs text-slate-500 mt-0.5">${completed}/${total} goals &middot; ${escapeHtml(c.description)}</p>
+            <p class="text-xs text-slate-500 mt-0.5">${summary} &middot; ${escapeHtml(c.description)}</p>
           </div>
           <div class="flex items-center gap-1">
             ${isCreator ? `<button onclick="event.stopPropagation(); showEditChallengeForm('${c.id}')" class="text-slate-400 hover:text-indigo-600 p-1" title="Edit">✏️</button>` : ""}
@@ -838,6 +887,14 @@ async function renderSelfProgress(challenge, panelHtml, container) {
   for (const g of data.progress) {
     html += makeGoalCard(g, challenge.id);
   }
+
+  // Challenge-level activities (not tied to a goal)
+  if (challenge.activities && challenge.activities.length > 0) {
+    html += `<div class="mt-3">
+      <div id="challenge-activities-log">${makeChallengeActivityForms(challenge.id, challenge.activities)}</div>
+    </div>`;
+  }
+
   html += await renderPrizes(challenge);
   html += await renderAchievements(data.achievements);
   html += await renderActivityLog(challenge.id);
@@ -878,6 +935,13 @@ async function renderFamilyProgress(challenge, panelHtml, container) {
   }
   html += `</div>`;
 
+  // Challenge-level activities (not tied to a goal)
+  if (challenge.activities && challenge.activities.length > 0) {
+    html += `<div class="mt-3">
+      <div id="challenge-activities-log">${makeChallengeActivityForms(challenge.id, challenge.activities)}</div>
+    </div>`;
+  }
+
   html += await renderPrizes(challenge);
   html += await renderAchievements(data.achievements);
   html += await renderActivityLog(challenge.id);
@@ -889,6 +953,28 @@ async function renderFamilyProgress(challenge, panelHtml, container) {
     currentMemberId = firstMember.userId;
     renderGoalActions(challenge);
   }
+}
+
+function makeChallengeActivityForms(challengeId, activities) {
+  return activities.map(a => {
+    const isDistTime = a.activityType === "DistanceAndTime";
+    return `
+      <form onsubmit="logActivity('${challengeId}', '${a.id}', event)" class="flex items-center gap-2 mt-2 flex-wrap">
+        <span class="text-sm font-medium text-slate-600">${escapeHtml(a.name)} (${a.pointValue}/${escapeHtml(a.unit)}):</span>
+        ${isDistTime ? `
+          <input type="number" step="any" placeholder="Distance (${escapeHtml(a.unit)})" required
+            class="dist-input flex-1 min-w-[70px] py-2 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
+          <input type="number" step="any" placeholder="Time (min)" required
+            class="time-input flex-1 min-w-[70px] py-2 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
+        ` : `
+          <input type="number" step="any" placeholder="${escapeHtml(a.unit)}" required
+            class="amount-input flex-1 min-w-[80px] py-2 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
+        `}
+        <input type="text" placeholder="Notes" class="notes-input py-2 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm flex-1 min-w-[100px]">
+        <button type="submit" class="py-2 px-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors text-sm">Log</button>
+      </form>
+    `;
+  }).join("");
 }
 
 function renderGoalActions(challenge) {
@@ -1125,7 +1211,15 @@ async function generateRedemption(challengeId, prizeId) {
   if (!prize) return;
 
   const qrUrl = `${API}/api/challenges/${challengeId}/prizes/${prizeId}/qr`;
-  showQrModal(prize.description, prize.cost, challenge.currencyName, qrUrl);
+  try {
+    const qrRes = await fetch(qrUrl, { headers: { ...authHeaders() } });
+    if (!qrRes.ok) { showToast("QR Error", "Could not load QR code", "error"); return; }
+    const blob = await qrRes.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    showQrModal(prize.description, prize.cost, challenge.currencyName, blobUrl);
+  } catch (e) {
+    showToast("QR Error", "Could not load QR code", "error");
+  }
 }
 
 function showQrModal(prizeDescription, cost, currencyName, qrUrl) {
@@ -1151,12 +1245,17 @@ function showQrModal(prizeDescription, cost, currencyName, qrUrl) {
       </div>
     </div>
   `;
+  modal.dataset.qrUrl = qrUrl;
   document.body.appendChild(modal);
 }
 
 function closeQrModal() {
   const modal = document.getElementById("qr-modal");
-  if (modal) modal.remove();
+  if (modal) {
+    const qrUrl = modal.dataset.qrUrl;
+    if (qrUrl && qrUrl.startsWith("blob:")) URL.revokeObjectURL(qrUrl);
+    modal.remove();
+  }
   const redeemModal = document.getElementById("redeem-modal");
   if (redeemModal) redeemModal.remove();
 }

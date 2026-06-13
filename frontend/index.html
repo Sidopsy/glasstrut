@@ -4,7 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#4f46e5">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Glasstrut">
   <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
   <title>Glasstrut</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="css/style.css">
@@ -246,6 +251,15 @@
               <button type="button" onclick="addGoalField()" class="text-xs font-bold bg-indigo-100 text-indigo-700 px-3 py-1 rounded-xl hover:bg-indigo-200">+ Add Goal</button>
             </div>
             <div id="goals-container"></div>
+          </div>
+
+          <!-- Challenge Activities Section -->
+          <div class="border-t border-slate-200 pt-3 mt-1">
+            <div class="flex justify-between items-center mb-2">
+              <label class="text-sm font-bold text-slate-700">Challenge Activities <span class="text-xs font-normal text-slate-400">(not tied to a goal)</span></label>
+              <button type="button" onclick="addChallengeActivityField()" class="text-xs font-bold bg-indigo-100 text-indigo-700 px-3 py-1 rounded-xl hover:bg-indigo-200">+ Add Activity</button>
+            </div>
+            <div id="challenge-activities-container"></div>
           </div>
 
           <!-- Prizes Section -->

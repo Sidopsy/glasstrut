@@ -42,6 +42,7 @@ public class ChallengeService : IChallengeService
         };
 
         AddGoalsAndPrizes(challenge, request.Goals, request.Prizes);
+        AddChallengeActivities(challenge, request.Activities);
 
         if (request.Type == "Targeted" && request.TargetUserIds != null)
         {
@@ -92,9 +93,55 @@ public class ChallengeService : IChallengeService
         challenge.CurrencyName = request.CurrencyName;
 
         await MergeGoalsAndPrizesAsync(challenge, request.Goals, request.Prizes);
+        await MergeChallengeActivitiesAsync(challenge, request.Activities);
         await _db.SaveChangesAsync();
 
         return await GetChallengeAsync(userId, challenge.Id);
+    }
+
+    private async Task MergeChallengeActivitiesAsync(Challenge challenge, List<UpdateActivityDto>? activityDtos)
+    {
+        if (activityDtos == null) return;
+
+        var activityIdsWithProgress = await _db.ProgressEntries
+            .Where(e => e.Activity.ChallengeId == challenge.Id && e.Activity.ChallengeGoalId == null)
+            .Select(e => e.ChallengeActivityId)
+            .Distinct()
+            .ToListAsync();
+
+        var requestActivityIds = activityDtos.Where(a => a.Id.HasValue).Select(a => a.Id!.Value).ToHashSet();
+
+        var activitiesToRemove = challenge.Activities
+            .Where(a => a.ChallengeGoalId == null && !activityIdsWithProgress.Contains(a.Id) && !requestActivityIds.Contains(a.Id))
+            .ToList();
+        foreach (var a in activitiesToRemove)
+            challenge.Activities.Remove(a);
+
+        foreach (var ad in activityDtos)
+        {
+            var existing = ad.Id.HasValue ? challenge.Activities.FirstOrDefault(a => a.Id == ad.Id.Value && a.ChallengeGoalId == null) : null;
+            if (existing != null)
+            {
+                existing.Name = ad.Name;
+                existing.ActivityType = ad.ActivityType;
+                existing.Unit = ad.Unit;
+                existing.PointValue = ad.PointValue;
+            }
+            else
+            {
+                challenge.Activities.Add(new ChallengeActivity
+                {
+                    Id = Guid.NewGuid(),
+                    ChallengeId = challenge.Id,
+                    ChallengeGoalId = null,
+                    Name = ad.Name,
+                    ActivityType = ad.ActivityType,
+                    Unit = ad.Unit,
+                    PointValue = ad.PointValue,
+                    CreatedAt = DateTime.UtcNow,
+                });
+            }
+        }
     }
 
     private async Task MergeGoalsAndPrizesAsync(Challenge challenge, List<UpdateGoalDto>? goalDtos, List<UpdatePrizeDto>? prizeDtos)
@@ -138,7 +185,7 @@ public class ChallengeService : IChallengeService
                     existing.IsHidden = gd.IsHidden;
 
                     var activityIdsWithProgress = await _db.ProgressEntries
-                        .Where(e => e.Activity.Goal.Id == existing.Id)
+                        .Where(e => e.Activity.ChallengeGoalId != null && e.Activity.Goal!.Id == existing.Id)
                         .Select(e => e.ChallengeActivityId)
                         .Distinct()
                         .ToListAsync();
@@ -247,6 +294,7 @@ public class ChallengeService : IChallengeService
         var challenge = await _db.Challenges
             .Include(c => c.Goals)
                 .ThenInclude(g => g.Activities)
+            .Include(c => c.Activities)
             .Include(c => c.Prizes)
             .Include(c => c.Targets)
             .FirstOrDefaultAsync(c => c.Id == challengeId)
@@ -272,6 +320,7 @@ public class ChallengeService : IChallengeService
         var query = _db.Challenges
             .Include(c => c.Goals)
                 .ThenInclude(g => g.Activities)
+            .Include(c => c.Activities)
             .Include(c => c.Prizes)
             .Include(c => c.Targets)
             .AsQueryable();
@@ -300,6 +349,26 @@ public class ChallengeService : IChallengeService
         return await query.OrderByDescending(c => c.CreatedAt)
                           .Select(c => MapToDto(c))
                           .ToListAsync();
+    }
+
+    private static void AddChallengeActivities(Challenge challenge, List<CreateActivityDto>? activityDtos)
+    {
+        if (activityDtos == null) return;
+        foreach (var ad in activityDtos)
+        {
+            var activity = new ChallengeActivity
+            {
+                Id = Guid.NewGuid(),
+                ChallengeId = challenge.Id,
+                ChallengeGoalId = null,
+                Name = ad.Name,
+                ActivityType = ad.ActivityType,
+                Unit = ad.Unit,
+                PointValue = ad.PointValue,
+                CreatedAt = DateTime.UtcNow,
+            };
+            challenge.Activities.Add(activity);
+        }
     }
 
     private static void AddGoalsAndPrizes(Challenge challenge, List<CreateGoalDto>? goalDtos, List<CreatePrizeDto>? prizeDtos)
@@ -377,7 +446,10 @@ public class ChallengeService : IChallengeService
             c.Prizes.Select(p => new ChallengePrizeDto(
                 p.Id, p.Description, p.Cost, p.HasQR, p.ChallengeGoalId
             )).ToList(),
-            c.Targets.Select(t => t.UserId).ToList()
+            c.Targets.Select(t => t.UserId).ToList(),
+            c.Activities.Where(a => a.ChallengeGoalId == null).Select(a => new ChallengeActivityDto(
+                a.Id, a.Name, a.ActivityType, a.Unit, a.PointValue
+            )).ToList()
         );
     }
 }

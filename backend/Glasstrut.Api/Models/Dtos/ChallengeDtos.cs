@@ -41,7 +41,8 @@ public record CreateChallengeRequest(
     List<CreateGoalDto>? Goals,
     List<CreatePrizeDto>? Prizes,
     List<string>? TargetUserIds,
-    string? CurrencyName = null
+    string? CurrencyName = null,
+    List<CreateActivityDto>? Activities = null
 );
 
 public record UpdateGoalDto(
@@ -69,7 +70,8 @@ public record UpdateChallengeRequest(
     DateTime? EndDate,
     List<UpdateGoalDto>? Goals,
     List<UpdatePrizeDto>? Prizes,
-    string? CurrencyName = null
+    string? CurrencyName = null,
+    List<UpdateActivityDto>? Activities = null
 );
 
 public record ChallengeDto(
@@ -85,7 +87,8 @@ public record ChallengeDto(
     string CreatedById,
     List<ChallengeGoalDto> Goals,
     List<ChallengePrizeDto> Prizes,
-    List<string> TargetUserIds
+    List<string> TargetUserIds,
+    List<ChallengeActivityDto> Activities
 );
 
 public record ChallengeActivityDto(
