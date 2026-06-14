@@ -662,6 +662,8 @@ function renderUpNext() {
         ${currencyName ? `<div class="mt-2 flex items-center gap-2 text-sm font-semibold text-amber-600">
           <span>💰 ${balance} ${escapeHtml(currencyName)}</span>
           ${streak > 0 ? `<span>🔥 ${streak} day streak</span>` : ""}
+        </div>` : streak > 0 ? `<div class="mt-2 flex items-center gap-2 text-sm font-semibold text-amber-600">
+          <span>🔥 ${streak} day streak</span>
         </div>` : ""}
       </div>
     `;
@@ -1290,6 +1292,10 @@ async function renderSelfProgress(challenge, panelHtml, container) {
       <span class="font-bold text-amber-700">💰 Balance: ${data.currencyBalance} ${escapeHtml(data.currencyName)}</span>
       <span class="text-sm text-amber-600">🔥 ${data.currentStreak} day streak</span>
     </div>`;
+  } else if (data.currentStreak > 0) {
+    html += `<div class="flex items-center gap-3 mb-3 p-3 bg-amber-50 rounded-xl border border-amber-200">
+      <span class="font-bold text-amber-600">🔥 ${data.currentStreak} day streak</span>
+    </div>`;
   }
 
   for (const g of data.progress) {
@@ -1333,6 +1339,10 @@ async function renderFamilyProgress(challenge, panelHtml, container) {
       html += `<div class="flex items-center gap-3 mb-2 p-2 bg-amber-50 rounded-lg border border-amber-200 text-sm">
         <span class="font-bold text-amber-700">💰 ${m.currencyBalance} ${escapeHtml(m.currencyName)}</span>
         <span class="text-amber-600">🔥 ${m.currentStreak} day streak</span>
+      </div>`;
+    } else if (m.currentStreak > 0) {
+      html += `<div class="flex items-center gap-3 mb-2 p-2 bg-amber-50 rounded-lg border border-amber-200 text-sm">
+        <span class="font-bold text-amber-600">🔥 ${m.currentStreak} day streak</span>
       </div>`;
     }
     for (const g of m.goals) {
@@ -1559,7 +1569,7 @@ async function loadTreasury() {
       const costStr = p.cost != null ? ` (Cost: ${p.cost} ${c.currencyName ? escapeHtml(c.currencyName) : "pts"})` : "";
       html += `<div class="flex items-center justify-between py-2 border-t border-slate-100">
         <span>🏅 ${escapeHtml(p.description)}${costStr}</span>
-        <button onclick="generateRedemption('${c.id}', '${p.id}')" class="text-xs font-bold bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-xl hover:bg-indigo-200 transition-colors">QR</button>
+        ${p.hasQR ? `<button onclick="generateRedemption('${c.id}', '${p.id}')" class="text-xs font-bold bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-xl hover:bg-indigo-200 transition-colors">QR</button>` : ""}
       </div>`;
     }
     html += `</div>`;
@@ -1609,7 +1619,7 @@ async function renderPrizes(challenge) {
     const costStr = p.cost != null ? ` (Cost: ${p.cost} ${challenge.currencyName ? escapeHtml(challenge.currencyName) : "pts"})` : "";
     html += `<div class="flex items-center justify-between py-2 border-t border-slate-100">
       <span>🏅 ${escapeHtml(p.description)}${costStr}</span>
-      <button onclick="generateRedemption('${challenge.id}', '${p.id}')" class="text-xs font-bold bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-xl hover:bg-indigo-200 transition-colors">QR</button>
+      ${p.hasQR ? `<button onclick="generateRedemption('${challenge.id}', '${p.id}')" class="text-xs font-bold bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-xl hover:bg-indigo-200 transition-colors">QR</button>` : ""}
     </div>`;
   }
   html += `</div>`;
@@ -1626,7 +1636,8 @@ async function generateRedemption(challengeId, prizeId) {
   if (!prize) return;
 
   try {
-    const qrRes = await apiFetch(`/api/challenges/${challengeId}/prizes/${prizeId}/qr`);
+    const headers = authHeaders();
+    const qrRes = await fetch(API + `/api/challenges/${challengeId}/prizes/${prizeId}/qr`, { headers });
     if (!qrRes.ok) { showToast("QR Error", "Could not load QR code", "error"); return; }
     const blob = await qrRes.blob();
     const blobUrl = URL.createObjectURL(blob);

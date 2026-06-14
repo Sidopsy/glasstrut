@@ -759,7 +759,7 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
 
         Assert.NotNull(progress);
         Assert.Equal(0, progress.CurrencyBalance);
-        Assert.Equal(0, progress.CurrentStreak);
+        Assert.Equal(1, progress.CurrentStreak); // streak tracked even without currency
         Assert.Null(progress.CurrencyName);
     }
 

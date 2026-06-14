@@ -72,45 +72,43 @@ public class GoalService : IGoalService
         };
         _db.ProgressEntries.Add(entry);
 
-        // Upsert currency balance BEFORE any early returns (hidden goal path)
-        if (currencyEarned.HasValue)
-        {
-            var today = now.Date;
-            var balance = await _db.ChallengeCurrencyBalances
-                .FirstOrDefaultAsync(b => b.ChallengeId == challengeId && b.UserId == userId);
+        // Upsert currency balance and streak tracker
+        var today = now.Date;
+        var balance = await _db.ChallengeCurrencyBalances
+            .FirstOrDefaultAsync(b => b.ChallengeId == challengeId && b.UserId == userId);
 
-            if (balance == null)
+        if (balance == null)
+        {
+            balance = new ChallengeCurrencyBalance
             {
-                balance = new ChallengeCurrencyBalance
-                {
-                    Id = Guid.NewGuid(),
-                    ChallengeId = challengeId,
-                    UserId = userId,
-                    Balance = currencyEarned.Value,
-                    CurrentStreak = 1,
-                    LastActivityDate = today,
-                    UpdatedAt = DateTime.UtcNow,
-                };
-                _db.ChallengeCurrencyBalances.Add(balance);
+                Id = Guid.NewGuid(),
+                ChallengeId = challengeId,
+                UserId = userId,
+                Balance = currencyEarned ?? 0,
+                CurrentStreak = 1,
+                LastActivityDate = today,
+                UpdatedAt = DateTime.UtcNow,
+            };
+            _db.ChallengeCurrencyBalances.Add(balance);
+        }
+        else
+        {
+            if (currencyEarned.HasValue)
+                balance.Balance += currencyEarned.Value;
+            if (balance.LastActivityDate == today)
+            {
+                // same day, streak unchanged
+            }
+            else if (balance.LastActivityDate == today.AddDays(-1))
+            {
+                balance.CurrentStreak++;
             }
             else
             {
-                balance.Balance += currencyEarned.Value;
-                if (balance.LastActivityDate == today)
-                {
-                    // same day, streak unchanged
-                }
-                else if (balance.LastActivityDate == today.AddDays(-1))
-                {
-                    balance.CurrentStreak++;
-                }
-                else
-                {
-                    balance.CurrentStreak = 1;
-                }
-                balance.LastActivityDate = today;
-                balance.UpdatedAt = DateTime.UtcNow;
+                balance.CurrentStreak = 1;
             }
+            balance.LastActivityDate = today;
+            balance.UpdatedAt = DateTime.UtcNow;
         }
 
         GoalProgressDto? progressDto = null;
