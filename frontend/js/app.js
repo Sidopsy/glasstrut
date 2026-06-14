@@ -19,10 +19,12 @@ function authHeaders() {
 }
 
 async function apiFetch(path, options = {}) {
-  const res = await fetch(API + path, {
-    ...options,
-    headers: { ...authHeaders(), "Content-Type": "application/x-www-form-urlencoded", ...options.headers },
-  });
+  const headers = { ...authHeaders(), ...options.headers };
+  // Only set default Content-Type for non-JSON payloads
+  if (options.body && !(options.body instanceof FormData) && !headers["Content-Type"]) {
+    headers["Content-Type"] = "application/x-www-form-urlencoded";
+  }
+  const res = await fetch(API + path, { ...options, headers });
   if (res.status === 401) {
     localStorage.removeItem("token");
     window.location.reload();
@@ -59,11 +61,17 @@ function getDayGreeting() {
   return `Happy ${day} ${time}`;
 }
 
+function base64UrlDecode(str) {
+  str = str.replace(/-/g, "+").replace(/_/g, "/");
+  str = str.padEnd(str.length + (4 - str.length % 4) % 4, "=");
+  return atob(str);
+}
+
 function decodeUserId() {
   const token = localStorage.getItem("token");
   if (!token) return null;
   try {
-    const payload = JSON.parse(atob(token.split(".")[1]));
+    const payload = JSON.parse(base64UrlDecode(token.split(".")[1]));
     return payload["http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier"];
   } catch { return null; }
 }
@@ -215,7 +223,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const token = localStorage.getItem("token");
   if (token) {
     try {
-      const payload = JSON.parse(atob(token.split(".")[1]));
+      const payload = JSON.parse(base64UrlDecode(token.split(".")[1]));
       const email = payload["http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"];
       const username = payload["http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"];
       if (username) localStorage.setItem("username", username);
@@ -225,6 +233,8 @@ document.addEventListener("DOMContentLoaded", () => {
       localStorage.removeItem("token");
       showAuth();
     }
+  } else {
+    showAuth();
   }
 
   document.getElementById("login-form").addEventListener("submit", async (e) => {
@@ -264,7 +274,7 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("family-name").value = "";
       loadFamilies();
     } else {
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       alert(data.error || "Failed to create family");
     }
   });
@@ -278,7 +288,7 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("invite-code").value = "";
       loadFamilies();
     } else {
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       alert(data.error || "Failed to join family");
     }
   });
@@ -292,13 +302,13 @@ async function loadAllData() {
 }
 
 async function loadChallenges() {
-  const res = await fetch(API + "/api/challenges", { headers: { ...authHeaders() } });
+  const res = await apiFetch("/api/challenges");
   if (!res.ok) return;
   cachedChallenges = await res.json();
 
   const progressPromises = cachedChallenges.map(async c => {
     try {
-      const r = await fetch(API + `/api/challenges/${c.id}/progress`, { headers: { ...authHeaders() } });
+      const r = await apiFetch(`/api/challenges/${c.id}/progress`);
       if (!r.ok) return null;
       return r.json();
     } catch { return null; }
@@ -338,7 +348,7 @@ async function loadFamilies() {
 }
 
 async function loadAchievements() {
-  const res = await fetch(API + "/api/achievements", { headers: { ...authHeaders() } });
+  const res = await apiFetch("/api/achievements");
   if (!res.ok) return;
   const achievements = await res.json();
   const list = document.getElementById("achievement-list");
@@ -372,9 +382,13 @@ function renderUpNext() {
     const p = cachedProgressMap[c.id];
     const completed = p ? p.progress.filter(g => g.isCompleted).length : 0;
     const total = p ? p.progress.length : c.goals.length;
-    const summary = total > 0 ? `${completed}/${total} goals done` : `${c.activities && c.activities.length > 0 ? c.activities.length : 0} activities`;
+    const activityCount = c.activities?.length ?? 0;
+    const summary = total > 0 ? `${completed}/${total} goals done` : `${activityCount} activities`;
     const emoji = EMOJIS[i % EMOJIS.length];
     const badgeColor = c.type === "SelfOnly" ? "text-orange-500 bg-orange-50" : "text-blue-500 bg-blue-50";
+    const balance = p ? (p.currencyBalance || 0) : 0;
+    const streak = p ? (p.currentStreak || 0) : 0;
+    const currencyName = p ? p.currencyName : (c.currencyName || null);
     return `
       <div class="snap-start shrink-0 w-64 bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex flex-col justify-between cursor-pointer" onclick="showProgress('${c.id}')">
         <div>
@@ -385,7 +399,10 @@ function renderUpNext() {
           <h3 class="font-bold text-lg text-slate-700 leading-tight">${escapeHtml(c.title)}</h3>
           <p class="text-xs text-slate-500 mt-1">${summary}</p>
         </div>
-        ${c.currencyName && total > 0 ? `<div class="mt-3 text-sm font-semibold text-indigo-600">${completed}/${total} &middot; ${escapeHtml(c.currencyName)}</div>` : ""}
+        ${currencyName ? `<div class="mt-2 flex items-center gap-2 text-sm font-semibold text-amber-600">
+          <span>💰 ${balance} ${escapeHtml(currencyName)}</span>
+          ${streak > 0 ? `<span>🔥 ${streak} day streak</span>` : ""}
+        </div>` : ""}
       </div>
     `;
   }).join("");
@@ -396,9 +413,7 @@ async function renderChronicleFeed() {
   const allEntries = [];
   for (const c of cachedChallenges) {
     try {
-      const res = await fetch(API + `/api/challenges/${c.id}/activity-log?count=5`, {
-        headers: { ...authHeaders() },
-      });
+      const res = await apiFetch(`/api/challenges/${c.id}/activity-log?count=5`);
       if (res.ok) {
         const entries = await res.json();
         allEntries.push(...entries);
@@ -413,12 +428,13 @@ async function renderChronicleFeed() {
   const top = allEntries.slice(0, 10);
   const userIcons = {};
   container.innerHTML = top.map(e => {
-    if (!userIcons[e.userEmail]) userIcons[e.userEmail] = e.userEmail[0].toUpperCase();
+    const email = e.userEmail || "";
+    if (email && !userIcons[email]) userIcons[email] = email[0].toUpperCase();
     return `
       <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center gap-4">
         <div class="h-12 w-12 rounded-full bg-indigo-100 flex items-center justify-center text-xl shrink-0 font-bold text-indigo-600">${userIcons[e.userEmail]}</div>
         <div class="flex-1 min-w-0">
-          <p class="text-sm text-slate-600"><span class="font-bold text-slate-800">${escapeHtml(e.userEmail.split('@')[0])}</span> logged</p>
+          <p class="text-sm text-slate-600"><span class="font-bold text-slate-800">${escapeHtml(e.userEmail ? e.userEmail.split('@')[0] : "someone")}</span> logged</p>
           <p class="font-bold text-slate-800 truncate">${escapeHtml(e.activityName)}</p>
         </div>
         <div class="text-right shrink-0">
@@ -432,16 +448,18 @@ async function renderChronicleFeed() {
 }
 
 async function refreshPoints() {
+  const currencies = {};
   let total = 0;
-  let currencyName = "";
   for (const c of cachedChallenges) {
     const p = cachedProgressMap[c.id];
-    if (p) {
-      total += p.currencyBalance || 0;
-      if (p.currencyName) currencyName = p.currencyName;
+    if (p && p.currencyName) {
+      const bal = p.currencyBalance || 0;
+      currencies[p.currencyName] = (currencies[p.currencyName] || 0) + bal;
+      total += bal;
     }
   }
-  const symbol = currencyName ? ` ${currencyName}` : " 🍦";
+  const entries = Object.entries(currencies);
+  const symbol = entries.length === 1 ? ` ${entries[0][0]}` : entries.length > 1 ? " pts" : " 🍦";
   document.getElementById("user-points").textContent = total + symbol;
 }
 
@@ -703,7 +721,7 @@ async function submitChallenge(event) {
 
   const goals = [];
   document.querySelectorAll(".goal-field").forEach(g => {
-    const editId = g.dataset.editId;
+    const goalEditId = g.dataset.editId;
     const description = g.querySelector(".goal-desc").value;
     const goalType = g.querySelector(".goal-type").value;
     const targetValue = g.querySelector(".goal-target").value;
@@ -724,7 +742,7 @@ async function submitChallenge(event) {
     });
     if (description) {
       const gd = {
-        id: editId || undefined,
+        id: goalEditId || undefined,
         description,
         type: goalType,
         targetValue: targetValue ? parseFloat(targetValue) : null,
@@ -737,7 +755,7 @@ async function submitChallenge(event) {
   });
 
   const prizes = [];
-  document.querySelectorAll(".prize-field").forEach(p => {
+    document.querySelectorAll(".prize-field").forEach(p => {
     const description = p.querySelector(".prize-desc").value;
     const cost = p.querySelector(".prize-cost").value;
     const hasQR = p.querySelector(".prize-hasqr").checked;
@@ -749,7 +767,7 @@ async function submitChallenge(event) {
         linkedGoalId = goals[goalIndex]?.id || null;
       }
       const pd = {
-        id: (editChallengeData && editChallengeData.prizes && prize.dataset.editId) ? prize.dataset.editId : undefined,
+        id: (editChallengeData && editChallengeData.prizes && p.dataset.editId) ? p.dataset.editId : undefined,
         description,
         cost: cost ? parseFloat(cost) : null,
         hasQR,
@@ -783,9 +801,9 @@ async function submitChallenge(event) {
   const method = editId ? "PUT" : "POST";
   const url = editId ? `/api/challenges/${editId}` : "/api/challenges";
 
-  const res = await fetch(API + url, {
+  const res = await apiFetch(url, {
     method,
-    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
 
@@ -793,7 +811,7 @@ async function submitChallenge(event) {
     closeChallengeModal();
     loadAllData();
   } else {
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     alert(data.error || "Failed to save challenge");
   }
 }
@@ -810,9 +828,12 @@ function renderQuestList() {
     const p = cachedProgressMap[c.id];
     const completed = p ? p.progress.filter(g => g.isCompleted).length : 0;
     const total = p ? p.progress.length : c.goals.length;
-    const summary = total > 0 ? `${completed}/${total} goals` : `${c.activities && c.activities.length > 0 ? c.activities.length : 0} activities`;
+    const activityCount = c.activities?.length ?? 0;
+    const summary = total > 0 ? `${completed}/${total} goals` : `${activityCount} activities`;
     const emoji = EMOJIS[i % EMOJIS.length];
     const isCreator = c.createdById && currentUserId && c.createdById === currentUserId;
+    const balance = p ? (p.currencyBalance || 0) : 0;
+    const currencyName = p ? p.currencyName : (c.currencyName || null);
     return `
       <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 cursor-pointer" onclick="showProgress('${c.id}')">
         <div class="flex items-center gap-3">
@@ -823,6 +844,7 @@ function renderQuestList() {
               <span class="text-xs font-bold ${c.type === 'SelfOnly' ? 'text-orange-500 bg-orange-50' : 'text-blue-500 bg-blue-50'} px-2 py-0.5 rounded-full shrink-0">${c.type === "SelfOnly" ? "Personal" : "Family"}</span>
             </div>
             <p class="text-xs text-slate-500 mt-0.5">${summary} &middot; ${escapeHtml(c.description)}</p>
+            ${currencyName ? `<p class="text-xs font-semibold text-amber-600 mt-0.5">💰 ${balance} ${escapeHtml(currencyName)}</p>` : ""}
           </div>
           <div class="flex items-center gap-1">
             ${isCreator ? `<button onclick="event.stopPropagation(); showEditChallengeForm('${c.id}')" class="text-slate-400 hover:text-indigo-600 p-1" title="Edit">✏️</button>` : ""}
@@ -839,9 +861,7 @@ async function showProgress(challengeId) {
   currentMemberId = null;
   const container = document.getElementById("challenge-progress");
 
-  const challengeRes = await fetch(API + "/api/challenges/" + challengeId, {
-    headers: { ...authHeaders() },
-  });
+  const challengeRes = await apiFetch("/api/challenges/" + challengeId);
   if (!challengeRes.ok) return;
   const challenge = await challengeRes.json();
 
@@ -869,9 +889,7 @@ function closeProgress() {
 }
 
 async function renderSelfProgress(challenge, panelHtml, container) {
-  const res = await fetch(API + "/api/challenges/" + challenge.id + "/progress", {
-    headers: { ...authHeaders() },
-  });
+  const res = await apiFetch("/api/challenges/" + challenge.id + "/progress");
   if (!res.ok) return;
   const data = await res.json();
 
@@ -904,24 +922,23 @@ async function renderSelfProgress(challenge, panelHtml, container) {
 }
 
 async function renderFamilyProgress(challenge, panelHtml, container) {
-  const membersRes = await fetch(API + "/api/challenges/" + challenge.id + "/progress/members", {
-    headers: { ...authHeaders() },
-  });
+  const membersRes = await apiFetch("/api/challenges/" + challenge.id + "/progress/members");
   if (!membersRes.ok) return;
   const data = await membersRes.json();
 
   let html = panelHtml;
-  html += `<div class="flex gap-2 mb-4 flex-wrap">`;
-  html += data.members.map((m, i) =>
-    `<button class="member-tab py-2 px-4 rounded-xl text-sm font-bold transition-colors ${i === 0 ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}" onclick="switchMember('${m.userId}')">${escapeHtml(m.email.split('@')[0])}</button>`
-  ).join("");
+      html += `<div class="flex gap-2 mb-4 flex-wrap">`;
+      html += data.members.map((m, i) => {
+        const prefix = m.email ? m.email.split('@')[0] : "Unknown";
+        return `<button class="member-tab py-2 px-4 rounded-xl text-sm font-bold transition-colors ${i === 0 ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}" data-user-id="${m.userId}" onclick="switchMember(this)">${escapeHtml(prefix)}</button>`;
+      }).join("");
   html += `</div>`;
 
   html += `<div id="member-progress-container">`;
   for (const m of data.members) {
     const isVisible = m === data.members[0];
-    html += `<div class="member-progress" id="member-progress-${m.userId}" style="display:${isVisible ? 'block' : 'none'}">`;
-    html += `<h4 class="font-bold text-indigo-600 mb-2">${escapeHtml(m.email)}</h4>`;
+      html += `<div class="member-progress" id="member-progress-${m.userId}" style="display:${isVisible ? 'block' : 'none'}">`;
+      html += `<h4 class="font-bold text-indigo-600 mb-2">${escapeHtml(m.email || "Unknown")}</h4>`;
     if (m.currencyName) {
       html += `<div class="flex items-center gap-3 mb-2 p-2 bg-amber-50 rounded-lg border border-amber-200 text-sm">
         <span class="font-bold text-amber-700">💰 ${m.currencyBalance} ${escapeHtml(m.currencyName)}</span>
@@ -1013,7 +1030,7 @@ function makeGoalCard(g, challengeId, memberId) {
       </div>
       <div class="text-sm text-slate-600">
         ${g.targetValue != null
-          ? `${g.currentValue} / ${g.targetValue} ${g.unit || ""}`
+          ? `${g.currentValue} / ${g.targetValue} ${escapeHtml(g.unit || "")}`
           : `${g.currentValue} pts`}
       </div>
       ${g.isCompleted ? '<div class="text-sm font-bold text-green-600 mt-1">✅ Complete!</div>' : ""}
@@ -1023,13 +1040,15 @@ function makeGoalCard(g, challengeId, memberId) {
   `;
 }
 
-function switchMember(userId) {
+function switchMember(el) {
+  const userId = typeof el === "string" ? el : el.dataset.userId;
   currentMemberId = userId;
   document.querySelectorAll(".member-tab").forEach(t => {
-    t.classList.toggle("bg-indigo-600", t.textContent.trim() === [...document.querySelectorAll(".member-tab")].find(b => b.onclick.toString().includes(userId))?.textContent.trim());
-    t.classList.toggle("text-white", t.textContent.trim() === [...document.querySelectorAll(".member-tab")].find(b => b.onclick.toString().includes(userId))?.textContent.trim());
-    t.classList.toggle("bg-slate-100", t.textContent.trim() !== [...document.querySelectorAll(".member-tab")].find(b => b.onclick.toString().includes(userId))?.textContent.trim());
-    t.classList.toggle("text-slate-600", t.textContent.trim() !== [...document.querySelectorAll(".member-tab")].find(b => b.onclick.toString().includes(userId))?.textContent.trim());
+    const isActive = t.dataset.userId === userId;
+    t.classList.toggle("bg-indigo-600", isActive);
+    t.classList.toggle("text-white", isActive);
+    t.classList.toggle("bg-slate-100", !isActive);
+    t.classList.toggle("text-slate-600", !isActive);
   });
   document.querySelectorAll(".member-progress").forEach(d => d.style.display = "none");
   const mp = document.getElementById("member-progress-" + userId);
@@ -1063,9 +1082,9 @@ async function logActivity(challengeId, activityId, event) {
     body.notes = notesInput.value.trim();
   }
 
-  const res = await fetch(API + `/api/challenges/${challengeId}/activities/${activityId}/log`, {
+  const res = await apiFetch(`/api/challenges/${challengeId}/activities/${activityId}/log`, {
     method: "POST",
-    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   if (res.ok) {
@@ -1079,15 +1098,13 @@ async function logActivity(challengeId, activityId, event) {
     showProgress(challengeId);
     loadAllData();
   } else {
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     alert(data.error || "Failed to log activity");
   }
 }
 
 async function renderActivityLog(challengeId) {
-  const res = await fetch(API + `/api/challenges/${challengeId}/activity-log?count=5`, {
-    headers: { ...authHeaders() },
-  });
+  const res = await apiFetch(`/api/challenges/${challengeId}/activity-log?count=5`);
   if (!res.ok) return "";
   const entries = await res.json();
   if (!entries.length) return "";
@@ -1095,10 +1112,12 @@ async function renderActivityLog(challengeId) {
   const userEmojis = {};
   let html = `<div class="mt-4 pt-4 border-t border-slate-200"><h4 class="font-bold text-slate-800 mb-2">Recent Activity</h4>`;
   for (const e of entries) {
-    if (!userEmojis[e.userEmail]) userEmojis[e.userEmail] = e.userEmail[0].toUpperCase();
+    const entryUserEmail = e.userEmail || "unknown";
+    if (!userEmojis[entryUserEmail]) userEmojis[entryUserEmail] = entryUserEmail[0].toUpperCase();
+    const displayEmail = entryUserEmail;
     html += `<div class="flex items-center gap-2 py-2 text-sm">
-      <span class="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center text-xs font-bold text-indigo-600 shrink-0">${userEmojis[e.userEmail]}</span>
-      <span class="font-semibold text-slate-700">${escapeHtml(e.userEmail.split('@')[0])}</span>
+      <span class="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center text-xs font-bold text-indigo-600 shrink-0">${userEmojis[displayEmail]}</span>
+      <span class="font-semibold text-slate-700">${escapeHtml(displayEmail.split('@')[0])}</span>
       <span class="text-slate-500">${escapeHtml(e.activityName)}</span>
       <span class="text-green-600 font-medium">+${e.amount} ${escapeHtml(e.unit || "")}</span>
       ${e.currencyEarned ? `<span class="text-amber-600 font-medium text-xs">+${e.currencyEarned} pts</span>` : ""}
@@ -1112,7 +1131,7 @@ async function renderActivityLog(challengeId) {
 }
 
 async function renderAchievements(achievements) {
-  if (!achievements.length) return "";
+  if (!achievements || !achievements.length) return "";
   let html = `<div class="mt-4 pt-4 border-t border-slate-200"><h4 class="font-bold text-slate-800 mb-2">Achievements</h4>`;
   for (const a of achievements) {
     html += `<div class="flex items-center gap-2 py-1 text-sm ${a.unlockedAt ? '' : 'opacity-50'}">
@@ -1158,7 +1177,7 @@ async function loadClaims() {
   let allClaims = [];
   for (const c of cachedChallenges) {
     try {
-      const res = await fetch(API + `/api/challenges/${c.id}/claims`, { headers: { ...authHeaders() } });
+      const res = await apiFetch(`/api/challenges/${c.id}/claims`);
       if (res.ok) {
         const claims = await res.json();
         allClaims = allClaims.concat(claims);
@@ -1199,20 +1218,16 @@ async function renderPrizes(challenge) {
 }
 
 async function generateRedemption(challengeId, prizeId) {
-  const existing = document.getElementById("qr-modal");
-  if (existing) existing.remove();
+  closeQrModal();
 
-  const challengeRes = await fetch(API + "/api/challenges/" + challengeId, {
-    headers: { ...authHeaders() },
-  });
+  const challengeRes = await apiFetch("/api/challenges/" + challengeId);
   if (!challengeRes.ok) return;
   const challenge = await challengeRes.json();
   const prize = challenge.prizes.find(p => p.id === prizeId);
   if (!prize) return;
 
-  const qrUrl = `${API}/api/challenges/${challengeId}/prizes/${prizeId}/qr`;
   try {
-    const qrRes = await fetch(qrUrl, { headers: { ...authHeaders() } });
+    const qrRes = await apiFetch(`/api/challenges/${challengeId}/prizes/${prizeId}/qr`);
     if (!qrRes.ok) { showToast("QR Error", "Could not load QR code", "error"); return; }
     const blob = await qrRes.blob();
     const blobUrl = URL.createObjectURL(blob);
@@ -1310,15 +1325,13 @@ async function processRedemption(challengeId, prizeId) {
   document.body.appendChild(modal);
 
   try {
-    const res = await fetch(API + "/api/challenges/" + challengeId, {
-      headers: { ...authHeaders() },
-    });
+    const res = await apiFetch("/api/challenges/" + challengeId);
     if (!res.ok) throw new Error("Challenge not found");
     const challenge = await res.json();
     const prize = challenge.prizes.find(p => p.id === prizeId);
     if (!prize) throw new Error("Prize not found");
 
-    const costStr = prize.cost != null ? `${prize.cost} ${challenge.currencyName || "pts"}` : "";
+    const costStr = prize.cost != null ? `${prize.cost} ${escapeHtml(challenge.currencyName || "pts")}` : "";
     document.getElementById("redeem-status").textContent = "";
     document.getElementById("redeem-prize-info").innerHTML = `
       <div class="text-center p-4 bg-slate-50 rounded-xl mb-3">
@@ -1339,9 +1352,9 @@ async function confirmRedemption(challengeId, prizeId, event) {
   btn.disabled = true;
   btn.textContent = "Redeeming...";
 
-  const res = await fetch(API + `/api/challenges/${challengeId}/prizes/${prizeId}/redeem`, {
+  const res = await apiFetch(`/api/challenges/${challengeId}/prizes/${prizeId}/redeem`, {
     method: "POST",
-    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({}),
   });
 
@@ -1353,8 +1366,12 @@ async function confirmRedemption(challengeId, prizeId, event) {
     showToast("Prize Redeemed", data.prizeDescription, "success");
     loadAllData();
   } else {
-    const data = await res.json();
-    document.getElementById("redeem-status").textContent = "❌ " + (data.error || "Redemption failed");
+    let errorMsg = "Redemption failed";
+    try {
+      const data = await res.json();
+      errorMsg = data.error || errorMsg;
+    } catch { /* use default */ }
+    document.getElementById("redeem-status").textContent = "❌ " + errorMsg;
     btn.disabled = false;
     btn.textContent = "Confirm Redemption";
   }

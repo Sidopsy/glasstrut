@@ -10,7 +10,12 @@ public static class AuthEndpoints
         app.MapPost("/api/auth/register", async (HttpRequest request, IAuthService auth) =>
         {
             var form = await request.ReadFormAsync();
-            var dto = new RegisterRequest(form["email"]!, form["password"]!, form["username"]);
+            var email = form["email"].FirstOrDefault();
+            var password = form["password"].FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
+                return Results.BadRequest(new { error = "Email and password are required." });
+
+            var dto = new RegisterRequest(email, password, form["username"].FirstOrDefault());
             try
             {
                 var result = await auth.RegisterAsync(dto);
@@ -25,7 +30,12 @@ public static class AuthEndpoints
         app.MapPost("/api/auth/login", async (HttpRequest request, IAuthService auth) =>
         {
             var form = await request.ReadFormAsync();
-            var dto = new LoginRequest(form["email"]!, form["password"]!);
+            var email = form["email"].FirstOrDefault();
+            var password = form["password"].FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
+                return Results.BadRequest(new { error = "Email and password are required." });
+
+            var dto = new LoginRequest(email, password);
             try
             {
                 var result = await auth.LoginAsync(dto);

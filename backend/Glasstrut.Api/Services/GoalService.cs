@@ -16,6 +16,9 @@ public class GoalService : IGoalService
 
     public async Task<LogActivityResponse> LogActivityAsync(string userId, Guid challengeId, Guid activityId, LogProgressRequest request)
     {
+        if (request.Amount <= 0)
+            throw new InvalidOperationException("Amount must be positive.");
+
         var activity = await _db.ChallengeActivities
             .Include(a => a.Challenge)
             .Include(a => a.Goal)
@@ -25,12 +28,25 @@ public class GoalService : IGoalService
 
         var challenge = activity.Challenge;
 
-        if (challenge.Type != "SelfOnly")
+        if (challenge.Type == "SelfOnly")
+        {
+            if (challenge.CreatedById != userId)
+                throw new UnauthorizedAccessException("This challenge does not belong to you.");
+        }
+        else
         {
             var isMember = await _db.FamilyMembers
                 .AnyAsync(m => m.FamilyId == challenge.FamilyId && m.UserId == userId);
             if (!isMember)
                 throw new UnauthorizedAccessException("You are not a member of this family.");
+
+            if (challenge.Type == "Targeted")
+            {
+                var isTargeted = await _db.ChallengeTargets
+                    .AnyAsync(t => t.ChallengeId == challengeId && t.UserId == userId);
+                if (!isTargeted)
+                    throw new UnauthorizedAccessException("You are not targeted in this challenge.");
+            }
         }
 
         decimal? currencyEarned = null;
@@ -55,86 +71,7 @@ public class GoalService : IGoalService
         };
         _db.ProgressEntries.Add(entry);
 
-        GoalProgressDto? progressDto = null;
-
-        if (activity.Goal != null)
-        {
-            var goal = activity.Goal;
-            var delta = request.Amount * activity.PointValue;
-
-            var progress = await _db.GoalProgresses
-                .FirstOrDefaultAsync(p => p.ChallengeGoalId == goal.Id && p.UserId == userId);
-
-            bool justCompleted = false;
-            if (progress == null)
-            {
-                progress = new GoalProgress
-                {
-                    Id = Guid.NewGuid(),
-                    ChallengeGoalId = goal.Id,
-                    UserId = userId,
-                    CurrentValue = delta,
-                    IsCompleted = goal.TargetValue.HasValue && delta >= goal.TargetValue.Value,
-                    CompletedAt = goal.TargetValue.HasValue && delta >= goal.TargetValue.Value
-                        ? DateTime.UtcNow : null,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow,
-                };
-                justCompleted = progress.IsCompleted;
-                progress.ProgressEntries.Add(entry);
-                _db.GoalProgresses.Add(progress);
-            }
-            else
-            {
-                progress.CurrentValue += delta;
-                if (goal.TargetValue.HasValue && progress.CurrentValue >= goal.TargetValue.Value && !progress.IsCompleted)
-                {
-                    progress.IsCompleted = true;
-                    progress.CompletedAt = DateTime.UtcNow;
-                    justCompleted = true;
-                }
-                progress.UpdatedAt = DateTime.UtcNow;
-            }
-
-            if (justCompleted)
-            {
-                if (goal.Type == "Achievement")
-                    await AutoAwardAchievementAsync(userId, goal);
-
-                if (goal.IsHidden)
-                {
-                    var linkedPrize = goal.Prizes.FirstOrDefault();
-                    if (linkedPrize != null)
-                    {
-                        await AutoClaimPrizeAsync(userId, challengeId, linkedPrize);
-                        progressDto = MapProgressDto(progress, goal);
-                        return new LogActivityResponse(
-                            progressDto,
-                            new SurpriseDto(
-                                $"Surprise! You earned {linkedPrize.Description}",
-                                $"You completed the hidden goal '{goal.Description}' and earned a reward!"
-                            ),
-                            currencyEarned
-                        );
-                    }
-                    else
-                    {
-                        progressDto = MapProgressDto(progress, goal);
-                        return new LogActivityResponse(
-                            progressDto,
-                            new SurpriseDto(
-                                $"Hidden goal completed: {goal.Description}",
-                                "Great job!"
-                            ),
-                            currencyEarned
-                        );
-                    }
-                }
-            }
-
-            progressDto = MapProgressDto(progress, goal);
-        }
-
+        // Upsert currency balance BEFORE any early returns (hidden goal path)
         if (currencyEarned.HasValue)
         {
             var today = DateTime.UtcNow.Date;
@@ -175,6 +112,78 @@ public class GoalService : IGoalService
             }
         }
 
+        GoalProgressDto? progressDto = null;
+
+        if (activity.Goal != null)
+        {
+            var goal = activity.Goal;
+            var delta = request.Amount * activity.PointValue;
+
+            var progress = await _db.GoalProgresses
+                .FirstOrDefaultAsync(p => p.ChallengeGoalId == goal.Id && p.UserId == userId);
+
+            bool justCompleted = false;
+            if (progress == null)
+            {
+                progress = new GoalProgress
+                {
+                    Id = Guid.NewGuid(),
+                    ChallengeGoalId = goal.Id,
+                    UserId = userId,
+                    CurrentValue = delta,
+                    IsCompleted = goal.TargetValue.HasValue && delta >= goal.TargetValue.Value,
+                    CompletedAt = goal.TargetValue.HasValue && delta >= goal.TargetValue.Value
+                        ? DateTime.UtcNow : null,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow,
+                };
+                justCompleted = progress.IsCompleted;
+                progress.ProgressEntries.Add(entry);
+                _db.GoalProgresses.Add(progress);
+            }
+            else
+            {
+                progress.CurrentValue += delta;
+                progress.ProgressEntries.Add(entry);
+                if (goal.TargetValue.HasValue && progress.CurrentValue >= goal.TargetValue.Value && !progress.IsCompleted)
+                {
+                    progress.IsCompleted = true;
+                    progress.CompletedAt = DateTime.UtcNow;
+                    justCompleted = true;
+                }
+                progress.UpdatedAt = DateTime.UtcNow;
+            }
+
+            if (justCompleted)
+            {
+                if (goal.Type == "Achievement")
+                    await AutoAwardAchievementAsync(userId, goal);
+
+                if (goal.IsHidden)
+                {
+                    var linkedPrize = goal.Prizes.FirstOrDefault();
+                    if (linkedPrize != null)
+                    {
+                        await AutoClaimPrizeAsync(userId, challengeId, linkedPrize);
+                    }
+                    progressDto = MapProgressDto(progress, goal);
+                    await _db.SaveChangesAsync();
+                    SurpriseDto surprise = linkedPrize != null
+                        ? new SurpriseDto(
+                            $"Surprise! You earned {linkedPrize.Description}",
+                            $"You completed the hidden goal '{goal.Description}' and earned a reward!"
+                        )
+                        : new SurpriseDto(
+                            $"Hidden goal completed: {goal.Description}",
+                            "Great job!"
+                        );
+                    return new LogActivityResponse(progressDto, surprise, currencyEarned);
+                }
+            }
+
+            progressDto = MapProgressDto(progress, goal);
+        }
+
         await _db.SaveChangesAsync();
 
         return new LogActivityResponse(progressDto, null, currencyEarned);
@@ -186,6 +195,18 @@ public class GoalService : IGoalService
             .Include(c => c.Goals)
             .FirstOrDefaultAsync(c => c.Id == challengeId)
             ?? throw new InvalidOperationException("Challenge not found.");
+
+        if (challenge.Type != "SelfOnly")
+        {
+            var isMember = await _db.FamilyMembers
+                .AnyAsync(m => m.FamilyId == challenge.FamilyId && m.UserId == userId);
+            if (!isMember)
+                throw new UnauthorizedAccessException("You are not a member of this family.");
+        }
+        else if (challenge.CreatedById != userId)
+        {
+            throw new UnauthorizedAccessException("This challenge does not belong to you.");
+        }
 
         var goalIds = challenge.Goals.Select(g => g.Id).ToList();
 
@@ -388,31 +409,32 @@ public class GoalService : IGoalService
 
     private async Task AutoAwardAchievementAsync(string userId, ChallengeGoal goal)
     {
-        var alreadyAwarded = await _db.UserAchievements
-            .AnyAsync(ua => ua.UserId == userId && ua.Achievement.ChallengeId == goal.ChallengeId);
-
-        if (alreadyAwarded)
-            return;
+        var challenge = await _db.Challenges.FindAsync(goal.ChallengeId);
 
         var achievement = await _db.Achievements
-            .FirstOrDefaultAsync(a => a.ChallengeId == goal.ChallengeId);
+            .FirstOrDefaultAsync(a => a.ChallengeId == goal.ChallengeId && a.ChallengeGoalId == goal.Id);
 
         if (achievement == null)
         {
-            var challenge = await _db.Challenges.FindAsync(goal.ChallengeId);
             achievement = new Achievement
             {
                 Id = Guid.NewGuid(),
-                Title = $"Completed: {challenge?.Title ?? "Challenge"}",
+                Title = $"Completed: {challenge?.Title ?? "Challenge"} - {goal.Description}",
                 Description = goal.IsHidden
                     ? $"Completed the hidden goal '{goal.Description}'!"
                     : $"Completed a goal in the challenge.",
-                IsHidden = false,
+                IsHidden = goal.IsHidden,
                 ChallengeId = goal.ChallengeId,
+                ChallengeGoalId = goal.Id,
                 CreatedAt = DateTime.UtcNow,
             };
             _db.Achievements.Add(achievement);
         }
+
+        var alreadyAwarded = await _db.UserAchievements
+            .AnyAsync(ua => ua.AchievementId == achievement.Id && ua.UserId == userId);
+        if (alreadyAwarded)
+            return;
 
         var userAchievement = new UserAchievement
         {
@@ -422,11 +444,15 @@ public class GoalService : IGoalService
             UnlockedAt = DateTime.UtcNow,
         };
         _db.UserAchievements.Add(userAchievement);
-        await _db.SaveChangesAsync();
     }
 
     private async Task AutoClaimPrizeAsync(string userId, Guid challengeId, ChallengePrize prize)
     {
+        var alreadyClaimed = await _db.Set<PrizeClaim>()
+            .AnyAsync(c => c.ChallengePrizeId == prize.Id && c.UserId == userId);
+        if (alreadyClaimed)
+            return;
+
         var claim = new PrizeClaim
         {
             Id = Guid.NewGuid(),
@@ -437,7 +463,6 @@ public class GoalService : IGoalService
             ClaimedAt = DateTime.UtcNow,
         };
         _db.Set<PrizeClaim>().Add(claim);
-        await _db.SaveChangesAsync();
     }
 
     private static GoalProgressDto MapProgressDto(GoalProgress p, ChallengeGoal g)

@@ -44,7 +44,6 @@ public class RedeemService : IRedeemService
     public async Task<PrizeRedeemResponse> RedeemPrizeAsync(string userId, Guid challengeId, Guid prizeId)
     {
         var challenge = await _db.Challenges
-            .Include(c => c.Goals)
             .FirstOrDefaultAsync(c => c.Id == challengeId)
             ?? throw new InvalidOperationException("Challenge not found.");
 
@@ -55,6 +54,12 @@ public class RedeemService : IRedeemService
             .FirstOrDefaultAsync(p => p.Id == prizeId && p.ChallengeId == challengeId)
             ?? throw new InvalidOperationException("Prize not found.");
 
+        // Prevent duplicate claims
+        var alreadyClaimed = await _db.Set<PrizeClaim>()
+            .AnyAsync(c => c.ChallengePrizeId == prizeId && c.UserId == userId);
+        if (alreadyClaimed)
+            throw new InvalidOperationException("You have already claimed this prize.");
+
         // If prize is linked to an Achievement goal, verify goal is completed
         if (prize.ChallengeGoalId.HasValue && prize.Goal?.Type == "Achievement")
         {
@@ -64,8 +69,11 @@ public class RedeemService : IRedeemService
                 throw new InvalidOperationException("Complete the linked goal before redeeming this prize.");
         }
 
-        // Only deduct cost for challenges with a currency
-        if (prize.Cost.HasValue && prize.Cost > 0 && !string.IsNullOrEmpty(challenge.CurrencyName))
+        // Skip cost deduction for goal-linked prizes (already "paid" by completing the goal)
+        var skipCost = prize.ChallengeGoalId.HasValue;
+
+        // Only deduct cost for non-goal-linked prizes with a cost and currency
+        if (!skipCost && prize.Cost.HasValue && prize.Cost > 0 && !string.IsNullOrEmpty(challenge.CurrencyName))
         {
             var balance = await _db.ChallengeCurrencyBalances
                 .FirstOrDefaultAsync(b => b.ChallengeId == challengeId && b.UserId == userId);
@@ -126,7 +134,12 @@ public class RedeemService : IRedeemService
 
     private async Task VerifyAccessAsync(string userId, Challenge challenge)
     {
-        if (challenge.Type == "SelfOnly") return;
+        if (challenge.Type == "SelfOnly")
+        {
+            if (challenge.CreatedById != userId)
+                throw new UnauthorizedAccessException("This challenge does not belong to you.");
+            return;
+        }
         var isMember = await _db.FamilyMembers
             .AnyAsync(m => m.FamilyId == challenge.FamilyId && m.UserId == userId);
         if (!isMember)

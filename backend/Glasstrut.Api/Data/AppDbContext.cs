@@ -78,7 +78,7 @@ public class AppDbContext : IdentityDbContext<User>
             entity.HasOne(e => e.Challenge)
                   .WithMany(c => c.Activities)
                   .HasForeignKey(e => e.ChallengeId)
-                  .OnDelete(DeleteBehavior.Restrict);
+                  .OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(e => e.Goal)
                   .WithMany(g => g.Activities)
                   .HasForeignKey(e => e.ChallengeGoalId)
@@ -145,11 +145,17 @@ public class AppDbContext : IdentityDbContext<User>
                   .WithMany()
                   .HasForeignKey(e => e.ChallengeId)
                   .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.ChallengeGoal)
+                  .WithMany()
+                  .HasForeignKey(e => e.ChallengeGoalId)
+                  .OnDelete(DeleteBehavior.SetNull);
+            entity.HasIndex(e => new { e.ChallengeId, e.ChallengeGoalId });
         });
 
         builder.Entity<PrizeClaim>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.ChallengePrizeId, e.UserId }).IsUnique();
             entity.HasOne(e => e.Prize)
                   .WithMany()
                   .HasForeignKey(e => e.ChallengePrizeId)

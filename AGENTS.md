@@ -62,6 +62,14 @@ dotnet test
 - GitHub Pages deploys the `frontend/` directory automatically on pushes to `main` that touch `frontend/**`.
 - Never commit secrets or keys to git. Never expose or log secrets in code.
 
+## ISSUES.md conventions
+
+- All known bugs, improvements, and findings go in `ISSUES.md` with a unique numbered ID (`#001`, `#002`, etc.).
+- Entries have: status (Open/In Progress/Fixed/Not relevant), severity, component, file, and details.
+- When an issue is fixed, move it from `/Open` to `/Resolved` section with the **Status:** line changed to `Fixed` and a description of the fix.
+- Mark irrelevant issues with "Not relevant" but keep them in the file (don't delete).
+- Start from the highest issue number when adding new issues by scanning the last entry.
+
 ## Current status
 
 Phase 1–5 complete (Foundation, Auth, Families, Challenges, Goals & Achievements).

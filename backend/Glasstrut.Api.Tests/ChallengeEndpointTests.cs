@@ -339,6 +339,35 @@ public class ChallengeEndpointTests : IClassFixture<CustomWebApplicationFactory>
 
         var challenges = await response.Content.ReadFromJsonAsync<List<ChallengeResponse>>();
         Assert.Single(challenges!);
+        Assert.Equal("My Challenge", challenges![0].Title);
+        Assert.Equal("Do it", challenges[0].Description);
+    }
+
+    [Fact]
+    public async Task GetChallengeById_ReturnsChallengeWithTitleAndDescription()
+    {
+        var token = await RegisterAndGetTokenAsync();
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var body = new {
+            title = "Read 20 Books",
+            description = "Read 20 books this summer",
+            type = "SelfOnly",
+            goals = (object[])[],
+            prizes = (object[])[],
+            activities = (object[])[],
+        };
+        var createResponse = await _client.PostAsJsonAsync("/api/challenges", body);
+        var created = await createResponse.Content.ReadFromJsonAsync<ChallengeResponse>();
+
+        var response = await _client.GetAsync($"/api/challenges/{created!.Id}");
+        response.EnsureSuccessStatusCode();
+        var challenge = await response.Content.ReadFromJsonAsync<ChallengeResponse>();
+
+        Assert.NotNull(challenge);
+        Assert.Equal(created.Id, challenge.Id);
+        Assert.Equal("Read 20 Books", challenge.Title);
+        Assert.Equal("Read 20 books this summer", challenge.Description);
     }
 
     private record AuthResponse(string Token, string Email);

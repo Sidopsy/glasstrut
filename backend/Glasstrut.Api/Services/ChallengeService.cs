@@ -16,8 +16,15 @@ public class ChallengeService : IChallengeService
 
     public async Task<ChallengeDto> CreateChallengeAsync(string userId, CreateChallengeRequest request)
     {
+        var allowedChallengeTypes = new[] { "SelfOnly", "FamilyWide", "Targeted" };
+        if (!allowedChallengeTypes.Contains(request.Type))
+            throw new InvalidOperationException($"Invalid challenge type: {request.Type}.");
+
         if (request.Type != "SelfOnly" && request.FamilyId == null)
             throw new InvalidOperationException("Family challenges must specify a family.");
+
+        if (request.StartDate.HasValue && request.EndDate.HasValue && request.EndDate <= request.StartDate)
+            throw new InvalidOperationException("End date must be after start date.");
 
         if (request.Type == "FamilyWide" || request.Type == "Targeted")
         {
@@ -78,6 +85,7 @@ public class ChallengeService : IChallengeService
         var challenge = await _db.Challenges
             .Include(c => c.Goals)
                 .ThenInclude(g => g.Activities)
+            .Include(c => c.Activities)
             .Include(c => c.Prizes)
             .Include(c => c.Targets)
             .FirstOrDefaultAsync(c => c.Id == challengeId)
@@ -85,6 +93,9 @@ public class ChallengeService : IChallengeService
 
         if (challenge.CreatedById != userId)
             throw new UnauthorizedAccessException("Only the creator can edit this challenge.");
+
+        if (request.StartDate.HasValue && request.EndDate.HasValue && request.EndDate <= request.StartDate)
+            throw new InvalidOperationException("End date must be after start date.");
 
         challenge.Title = request.Title;
         challenge.Description = request.Description;
@@ -158,18 +169,23 @@ public class ChallengeService : IChallengeService
             .Distinct()
             .ToListAsync();
 
-        var requestGoalIds = goalDtos?.Where(g => g.Id.HasValue).Select(g => g.Id!.Value).ToHashSet() ?? [];
-        var requestPrizeIds = prizeDtos?.Where(p => p.Id.HasValue).Select(p => p.Id!.Value).ToHashSet() ?? [];
+        if (goalDtos != null)
+        {
+            var requestGoalIds = goalDtos.Where(g => g.Id.HasValue).Select(g => g.Id!.Value).ToHashSet();
+            var goalsToRemove = challenge.Goals
+                .Where(g => !goalIdsWithProgress.Contains(g.Id) && !requestGoalIds.Contains(g.Id))
+                .ToList();
+            foreach (var g in goalsToRemove) challenge.Goals.Remove(g);
+        }
 
-        var goalsToRemove = challenge.Goals
-            .Where(g => !goalIdsWithProgress.Contains(g.Id) && !requestGoalIds.Contains(g.Id))
-            .ToList();
-        foreach (var g in goalsToRemove) challenge.Goals.Remove(g);
-
-        var prizesToRemove = challenge.Prizes
-            .Where(p => !prizeIdsWithClaims.Contains(p.Id) && !requestPrizeIds.Contains(p.Id))
-            .ToList();
-        foreach (var p in prizesToRemove) challenge.Prizes.Remove(p);
+        if (prizeDtos != null)
+        {
+            var requestPrizeIds = prizeDtos.Where(p => p.Id.HasValue).Select(p => p.Id!.Value).ToHashSet();
+            var prizesToRemove = challenge.Prizes
+                .Where(p => !prizeIdsWithClaims.Contains(p.Id) && !requestPrizeIds.Contains(p.Id))
+                .ToList();
+            foreach (var p in prizesToRemove) challenge.Prizes.Remove(p);
+        }
 
         if (goalDtos != null)
         {
@@ -262,8 +278,12 @@ public class ChallengeService : IChallengeService
 
         if (prizeDtos != null)
         {
+            var validGoalIds = challenge.Goals.Select(g => g.Id).ToHashSet();
             foreach (var pd in prizeDtos)
             {
+                if (pd.ChallengeGoalId.HasValue && !validGoalIds.Contains(pd.ChallengeGoalId.Value))
+                    throw new InvalidOperationException("Prize links to a goal that does not belong to this challenge.");
+
                 var existing = pd.Id.HasValue ? challenge.Prizes.FirstOrDefault(p => p.Id == pd.Id.Value) : null;
                 if (existing != null)
                 {
@@ -346,9 +366,8 @@ public class ChallengeService : IChallengeService
                 (c.Type != "SelfOnly" && c.FamilyId != null && userFamilyIds.Contains(c.FamilyId.Value)));
         }
 
-        return await query.OrderByDescending(c => c.CreatedAt)
-                          .Select(c => MapToDto(c))
-                          .ToListAsync();
+        var challenges = await query.OrderByDescending(c => c.CreatedAt).ToListAsync();
+        return challenges.Select(MapToDto).ToList();
     }
 
     private static void AddChallengeActivities(Challenge challenge, List<CreateActivityDto>? activityDtos)
@@ -415,8 +434,12 @@ public class ChallengeService : IChallengeService
 
         if (prizeDtos != null)
         {
+            var validGoalIds = challenge.Goals.Select(g => g.Id).ToHashSet();
             foreach (var prizeDto in prizeDtos)
             {
+                if (prizeDto.ChallengeGoalId.HasValue && !validGoalIds.Contains(prizeDto.ChallengeGoalId.Value))
+                    throw new InvalidOperationException("Prize links to a goal that does not belong to this challenge.");
+
                 var prize = new ChallengePrize
                 {
                     Id = Guid.NewGuid(),

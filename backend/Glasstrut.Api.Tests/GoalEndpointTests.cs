@@ -84,6 +84,7 @@ public class GoalEndpointTests : IClassFixture<CustomWebApplicationFactory>
             title = "Summer Training",
             description = "Run distances",
             type = "SelfOnly",
+            currencyName = "Stars",
             goals = new[]
             {
                 new {
@@ -116,6 +117,9 @@ public class GoalEndpointTests : IClassFixture<CustomWebApplicationFactory>
         Assert.Equal(2, result!.Progress.Count);
         Assert.Equal(0, result.Progress[0].CurrentValue);
         Assert.False(result.Progress[0].IsCompleted);
+        Assert.Equal(0, result.CurrencyBalance);
+        Assert.Equal(0, result.CurrentStreak);
+        Assert.Equal("Stars", result.CurrencyName);
     }
 
     [Fact]
@@ -191,7 +195,8 @@ public class GoalEndpointTests : IClassFixture<CustomWebApplicationFactory>
         decimal? TargetValue, string? Unit, decimal CurrentValue, bool IsCompleted, DateTime? CompletedAt);
     private record SurpriseResponse(string Title, string Description);
     private record LogActivityResponse(GoalProgressResponse Progress, SurpriseResponse? Surprise);
-    private record ProgressResponse(List<GoalProgressResponse> Progress, List<AchievementResponse> Achievements);
+    private record ProgressResponse(List<GoalProgressResponse> Progress, List<AchievementResponse> Achievements,
+        decimal CurrencyBalance = 0, int CurrentStreak = 0, string? CurrencyName = null);
     private record AchievementResponse(Guid Id, string Title, string Description, bool IsHidden,
         DateTime CreatedAt, DateTime? UnlockedAt);
 }

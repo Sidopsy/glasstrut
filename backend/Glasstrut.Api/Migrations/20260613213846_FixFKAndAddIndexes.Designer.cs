@@ -3,6 +3,7 @@ using System;
 using Glasstrut.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Glasstrut.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260613213846_FixFKAndAddIndexes")]
+    partial class FixFKAndAddIndexes
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.8");
@@ -21,9 +24,6 @@ namespace Glasstrut.Api.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid?>("ChallengeGoalId")
                         .HasColumnType("TEXT");
 
                     b.Property<Guid?>("ChallengeId")
@@ -45,9 +45,7 @@ namespace Glasstrut.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ChallengeGoalId");
-
-                    b.HasIndex("ChallengeId", "ChallengeGoalId");
+                    b.HasIndex("ChallengeId");
 
                     b.ToTable("Achievements");
                 });
@@ -668,19 +666,12 @@ namespace Glasstrut.Api.Migrations
 
             modelBuilder.Entity("Glasstrut.Api.Models.Achievement", b =>
                 {
-                    b.HasOne("Glasstrut.Api.Models.ChallengeGoal", "ChallengeGoal")
-                        .WithMany()
-                        .HasForeignKey("ChallengeGoalId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("Glasstrut.Api.Models.Challenge", "Challenge")
                         .WithMany()
                         .HasForeignKey("ChallengeId")
                         .OnDelete(DeleteBehavior.Cascade);
 
                     b.Navigation("Challenge");
-
-                    b.Navigation("ChallengeGoal");
                 });
 
             modelBuilder.Entity("Glasstrut.Api.Models.Challenge", b =>
