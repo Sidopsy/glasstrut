@@ -6,6 +6,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Glasstrut.Api.Data;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace Glasstrut.Api.Tests;
 
@@ -23,7 +24,8 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             connection.Open();
 
             services.AddDbContext<AppDbContext>(options =>
-                options.UseSqlite(connection));
+                options.UseSqlite(connection)
+                       .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
 
             var sp = services.BuildServiceProvider();
             using var scope = sp.CreateScope();

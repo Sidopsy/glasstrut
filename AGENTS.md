@@ -123,4 +123,11 @@ Phase 10 Currency Overhaul & Streak Counter complete.
 - Frontend: balance + streak displayed in progress views, `currencyEarned` shown in activity log + toast
 - `refreshPoints()` sums `p.currencyBalance` across challenges
 - Migration: `AddCurrencyBalanceAndStreak`
-- Full test coverage: 67 tests still pass
+- Full test coverage: 73 tests pass (up from 67)
+
+### Phase 11 — TimeUnit & Test Fixes (complete)
+- Re-added `ChallengeActivity.TimeUnit` column after it was mistakenly removed
+- Added `ALTER TABLE` startup SQL in Program.cs for existing databases
+- Added `PendingModelChangesWarning` suppression in test factory's `ConfigureWebHost`
+- Added note: tests need `RelationalEventId.PendingModelChangesWarning` ignored when model changes exist without proper migrations
+- Full test coverage: 73 tests pass

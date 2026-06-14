@@ -136,6 +136,7 @@ public class ChallengeService : IChallengeService
                 existing.Name = ad.Name;
                 existing.ActivityType = ad.ActivityType;
                 existing.Unit = ad.Unit;
+                existing.TimeUnit = ad.TimeUnit;
                 existing.PointValue = ad.PointValue;
             }
             else
@@ -148,6 +149,7 @@ public class ChallengeService : IChallengeService
                     Name = ad.Name,
                     ActivityType = ad.ActivityType,
                     Unit = ad.Unit,
+                    TimeUnit = ad.TimeUnit,
                     PointValue = ad.PointValue,
                     CreatedAt = DateTime.UtcNow,
                 });
@@ -221,7 +223,8 @@ public class ChallengeService : IChallengeService
                             {
                                 existingAct.Name = ad.Name;
                                 existingAct.ActivityType = ad.ActivityType;
-                                existingAct.Unit = ad.Unit;
+                existingAct.Unit = ad.Unit;
+                                existingAct.TimeUnit = ad.TimeUnit;
                                 existingAct.PointValue = ad.PointValue;
                             }
                             else
@@ -234,6 +237,7 @@ public class ChallengeService : IChallengeService
                                     Name = ad.Name,
                                     ActivityType = ad.ActivityType,
                                     Unit = ad.Unit,
+                                    TimeUnit = ad.TimeUnit,
                                     PointValue = ad.PointValue,
                                     CreatedAt = DateTime.UtcNow,
                                 });
@@ -383,6 +387,7 @@ public class ChallengeService : IChallengeService
                 Name = ad.Name,
                 ActivityType = ad.ActivityType,
                 Unit = ad.Unit,
+                TimeUnit = ad.TimeUnit,
                 PointValue = ad.PointValue,
                 CreatedAt = DateTime.UtcNow,
             };
@@ -420,6 +425,7 @@ public class ChallengeService : IChallengeService
                             Name = activityDto.Name,
                             ActivityType = activityDto.ActivityType,
                             Unit = activityDto.Unit,
+                            TimeUnit = activityDto.TimeUnit,
                             PointValue = activityDto.PointValue,
                             CreatedAt = DateTime.UtcNow,
                         };
@@ -463,7 +469,7 @@ public class ChallengeService : IChallengeService
             c.Goals.Select(g => new ChallengeGoalDto(
                 g.Id, g.Description, g.Type, g.TargetValue, g.Unit, g.IsHidden,
                 g.Activities.Select(a => new ChallengeActivityDto(
-                    a.Id, a.Name, a.ActivityType, a.Unit, a.PointValue
+                    a.Id, a.Name, a.ActivityType, a.Unit, a.TimeUnit, a.PointValue
                 )).ToList()
             )).ToList(),
             c.Prizes.Select(p => new ChallengePrizeDto(
@@ -471,7 +477,7 @@ public class ChallengeService : IChallengeService
             )).ToList(),
             c.Targets.Select(t => t.UserId).ToList(),
             c.Activities.Where(a => a.ChallengeGoalId == null).Select(a => new ChallengeActivityDto(
-                a.Id, a.Name, a.ActivityType, a.Unit, a.PointValue
+                a.Id, a.Name, a.ActivityType, a.Unit, a.TimeUnit, a.PointValue
             )).ToList()
         );
     }
