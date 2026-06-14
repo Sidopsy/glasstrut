@@ -3,7 +3,8 @@ namespace Glasstrut.Api.Models.Dtos;
 public record LogProgressRequest(
     decimal Amount,
     decimal? TimeAmount = null,
-    string? Notes = null
+    string? Notes = null,
+    DateTime? ClientRecordedAt = null
 );
 
 public record LogActivityResponse(
@@ -69,6 +70,7 @@ public record ActivityLogEntryDto(
     decimal Amount,
     decimal? TimeAmount,
     string? Unit,
+    string? TimeUnit,
     string? Notes,
     DateTime RecordedAt,
     decimal? CurrencyEarned = null

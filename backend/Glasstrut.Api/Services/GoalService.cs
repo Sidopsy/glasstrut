@@ -56,6 +56,7 @@ public class GoalService : IGoalService
             if (raw > 0) currencyEarned = raw;
         }
 
+        var now = request.ClientRecordedAt ?? DateTime.UtcNow;
         var entry = new ProgressEntry
         {
             Id = Guid.NewGuid(),
@@ -66,7 +67,7 @@ public class GoalService : IGoalService
             Unit = activity.Unit,
             CurrencyEarned = currencyEarned,
             Notes = request.Notes,
-            RecordedAt = DateTime.UtcNow,
+            RecordedAt = now,
             CreatedAt = DateTime.UtcNow,
         };
         _db.ProgressEntries.Add(entry);
@@ -74,7 +75,7 @@ public class GoalService : IGoalService
         // Upsert currency balance BEFORE any early returns (hidden goal path)
         if (currencyEarned.HasValue)
         {
-            var today = DateTime.UtcNow.Date;
+            var today = now.Date;
             var balance = await _db.ChallengeCurrencyBalances
                 .FirstOrDefaultAsync(b => b.ChallengeId == challengeId && b.UserId == userId);
 
@@ -383,6 +384,7 @@ public class GoalService : IGoalService
             e.Amount,
             e.TimeAmount,
             e.Unit,
+            e.Activity.TimeUnit,
             e.Notes,
             e.RecordedAt,
             e.CurrencyEarned

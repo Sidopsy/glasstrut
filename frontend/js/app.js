@@ -18,18 +18,112 @@ function authHeaders() {
   return token ? { "Authorization": "Bearer " + token } : {};
 }
 
+const CACHE_PREFIX = "apiCache_";
+const OFFLINE_QUEUE_KEY = "offlineQueue";
+
+function getCacheKey(path) { return CACHE_PREFIX + path; }
+
+function getCachedResponse(path) {
+  try {
+    const stored = localStorage.getItem(getCacheKey(path));
+    return stored ? JSON.parse(stored) : null;
+  } catch { return null; }
+}
+
+function setCachedResponse(path, data) {
+  try {
+    localStorage.setItem(getCacheKey(path), JSON.stringify(data));
+  } catch { /* storage full, ignore */ }
+}
+
+function clearCache() {
+  const keys = Object.keys(localStorage).filter(k => k.startsWith(CACHE_PREFIX));
+  keys.forEach(k => localStorage.removeItem(k));
+}
+
+function getOfflineQueue() {
+  try {
+    const stored = localStorage.getItem(OFFLINE_QUEUE_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch { return []; }
+}
+
+function setOfflineQueue(queue) {
+  try {
+    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+  } catch { /* storage full, ignore */ }
+}
+
+function addToOfflineQueue(path, options, body) {
+  const queue = getOfflineQueue();
+  queue.push({ path, options, body, timestamp: new Date().toISOString() });
+  setOfflineQueue(queue);
+}
+
+async function replayOfflineQueue() {
+  const queue = getOfflineQueue();
+  if (queue.length === 0) return;
+  const remaining = [];
+  for (const item of queue) {
+    try {
+      const res = await fetch(API + item.path, { ...item.options, body: item.body });
+      if (!res.ok) { remaining.push(item); continue; }
+    } catch {
+      remaining.push(item);
+    }
+  }
+  setOfflineQueue(remaining);
+  if (remaining.length < queue.length) {
+    showToast("Sync Complete", `${queue.length - remaining.length} offline activities synced!`, "success");
+  }
+}
+
 async function apiFetch(path, options = {}) {
   const headers = { ...authHeaders(), ...options.headers };
-  // Only set default Content-Type for non-JSON payloads
   if (options.body && !(options.body instanceof FormData) && !headers["Content-Type"]) {
     headers["Content-Type"] = "application/x-www-form-urlencoded";
   }
-  const res = await fetch(API + path, { ...options, headers });
-  if (res.status === 401) {
-    localStorage.removeItem("token");
-    window.location.reload();
+
+  const method = (options.method || "GET").toUpperCase();
+
+  if (method === "GET") {
+    const cached = getCachedResponse(path);
+    try {
+      const res = await fetch(API + path, { ...options, headers });
+      if (res.status === 401) {
+        localStorage.removeItem("token");
+        window.location.reload();
+      }
+      if (res.ok) {
+        const data = await res.json();
+        setCachedResponse(path, data);
+        return { ok: true, json: async () => data, status: res.status, headers: res.headers };
+      }
+      if (cached && !res.ok) {
+        return { ok: true, json: async () => cached, status: 200, headers: res.headers, _fromCache: true };
+      }
+      return { ok: false, status: res.status, json: async () => ({ error: "Request failed" }) };
+    } catch {
+      if (cached) {
+        showToast("Offline Mode", "Showing cached data", "info");
+        return { ok: true, json: async () => cached, status: 200, headers: new Headers(), _fromCache: true };
+      }
+      throw new Error("Network error and no cached data available");
+    }
   }
-  return res;
+
+  try {
+    const res = await fetch(API + path, { ...options, headers });
+    if (res.status === 401) {
+      localStorage.removeItem("token");
+      window.location.reload();
+    }
+    return res;
+  } catch {
+    addToOfflineQueue(path, options, options.body);
+    showToast("Offline", "Activity queued — will sync when online", "info");
+    return { ok: true, json: async () => ({}), _queued: true };
+  }
 }
 
 function escapeHtml(str) {
@@ -76,7 +170,25 @@ function decodeUserId() {
   } catch { return null; }
 }
 
-// ========== TOAST ==========
+// ========== TOAST & CONFETTI ==========
+
+function spawnConfetti() {
+  const colors = ["#4f46e5", "#f59e0b", "#10b981", "#ef4444", "#8b5cf6", "#ec4899"];
+  for (let i = 0; i < 40; i++) {
+    const piece = document.createElement("div");
+    piece.className = "confetti-piece";
+    piece.style.left = Math.random() * 100 + "vw";
+    piece.style.top = "-10px";
+    piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+    piece.style.width = (Math.random() * 6 + 4) + "px";
+    piece.style.height = (Math.random() * 6 + 4) + "px";
+    piece.style.borderRadius = Math.random() > 0.5 ? "50%" : "2px";
+    piece.style.animationDuration = (Math.random() * 1.5 + 1.5) + "s";
+    piece.style.animationDelay = (Math.random() * 0.5) + "s";
+    document.body.appendChild(piece);
+    setTimeout(() => piece.remove(), 3000);
+  }
+}
 
 function showToast(title, description, type) {
   const container = document.getElementById("toast-container");
@@ -292,12 +404,24 @@ document.addEventListener("DOMContentLoaded", () => {
       alert(data.error || "Failed to join family");
     }
   });
+
+  // Online/offline handling
+  window.addEventListener("online", () => {
+    document.getElementById("offline-banner")?.classList.add("hidden");
+    replayOfflineQueue().then(() => loadAllData());
+  });
+  window.addEventListener("offline", () => {
+    document.getElementById("offline-banner")?.classList.remove("hidden");
+  });
+
+  // Replay any pending queue on page load
+  replayOfflineQueue();
 });
 
 // ========== DATA LOADING ==========
 
 async function loadAllData() {
-  await Promise.all([loadChallenges(), loadAchievements()]);
+  await Promise.all([loadChallenges(), loadAchievements()]).catch(() => {});
   renderChronicleFeed();
 }
 
@@ -318,6 +442,7 @@ async function loadChallenges() {
   cachedChallenges.forEach((c, i) => { cachedProgressMap[c.id] = progressData[i]; });
 
   renderUpNext();
+  renderQuickLog();
   renderQuestList();
   refreshPoints();
 }
@@ -368,6 +493,141 @@ async function loadAchievements() {
       </div>
     </div>
   `).join("");
+}
+
+// ========== QUICK LOG ==========
+
+function collectAllActivities() {
+  const activities = [];
+  const seen = new Set();
+  for (const c of cachedChallenges) {
+    if (c.activities) {
+      for (const a of c.activities) {
+        const key = c.id + ":" + a.id;
+        if (!seen.has(key)) {
+          seen.add(key);
+          activities.push({ ...a, challengeId: c.id, challengeTitle: c.title });
+        }
+      }
+    }
+    if (c.goals) {
+      for (const g of c.goals) {
+        if (g.activities) {
+          for (const a of g.activities) {
+            const key = c.id + ":" + a.id;
+            if (!seen.has(key)) {
+              seen.add(key);
+              activities.push({ ...a, challengeId: c.id, challengeTitle: c.title, goalId: g.id });
+            }
+          }
+        }
+      }
+    }
+  }
+  return activities;
+}
+
+function getRecentQuickLogIds() {
+  try {
+    const stored = localStorage.getItem("quickLogIds");
+    return stored ? JSON.parse(stored) : [];
+  } catch { return []; }
+}
+
+function recordQuickLog(activityId) {
+  const ids = getRecentQuickLogIds().filter(id => id !== activityId);
+  ids.unshift(activityId);
+  if (ids.length > 5) ids.length = 5;
+  localStorage.setItem("quickLogIds", JSON.stringify(ids));
+}
+
+function renderQuickLog() {
+  const container = document.getElementById("quick-log-list");
+  const section = document.getElementById("quick-log-section");
+  const allActivities = collectAllActivities();
+  if (allActivities.length === 0) {
+    section.classList.add("hidden");
+    return;
+  }
+
+  const recentIds = getRecentQuickLogIds();
+  const sorted = [...allActivities].sort((a, b) => {
+    const aIdx = recentIds.indexOf(a.id);
+    const bIdx = recentIds.indexOf(b.id);
+    if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+    if (aIdx !== -1) return -1;
+    if (bIdx !== -1) return 1;
+    return 0;
+  });
+  const top = sorted.slice(0, 5);
+
+  container.innerHTML = top.map(a => {
+    const isDistTime = a.activityType === "DistanceAndTime";
+    return `
+      <form onsubmit="quickLogSubmit('${a.challengeId}', '${a.id}', event)" class="bg-white rounded-2xl p-3 shadow-sm border border-slate-100 flex flex-col gap-2">
+        <div class="flex items-center justify-between">
+          <span class="text-sm font-bold text-slate-700 truncate">${escapeHtml(a.name)}</span>
+          <span class="text-xs text-slate-400 shrink-0 ml-2">${escapeHtml(a.challengeTitle)}</span>
+        </div>
+        <div class="flex items-center gap-2">
+          ${isDistTime ? `
+            <input type="number" inputmode="decimal" step="any" placeholder="Dist (${escapeHtml(a.unit)})" required
+              class="ql-dist w-20 py-1.5 px-2 bg-slate-100 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-xs">
+            <input type="number" inputmode="decimal" step="any" placeholder="Time" required
+              class="ql-time w-20 py-1.5 px-2 bg-slate-100 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-xs">
+          ` : `
+            <input type="number" inputmode="decimal" step="any" placeholder="Amount" required
+              class="ql-amount w-20 py-1.5 px-2 bg-slate-100 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-xs">
+          `}
+          <button type="submit" class="py-1.5 px-4 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition-colors text-xs whitespace-nowrap">+ Log</button>
+        </div>
+      </form>
+    `;
+  }).join("");
+  section.classList.remove("hidden");
+}
+
+async function quickLogSubmit(challengeId, activityId, event) {
+  event.preventDefault();
+  const form = event.target;
+  const distInput = form.querySelector(".ql-dist");
+  const timeInput = form.querySelector(".ql-time");
+  const amountInput = form.querySelector(".ql-amount");
+
+  let amount, timeAmount;
+  if (distInput && timeInput) {
+    amount = parseFloat(distInput.value);
+    timeAmount = parseFloat(timeInput.value);
+    if (isNaN(amount) || isNaN(timeAmount)) return;
+  } else {
+    amount = parseFloat(amountInput.value);
+    if (isNaN(amount)) return;
+  }
+
+  const body = { amount };
+  if (timeAmount != null) body.timeAmount = timeAmount;
+
+  const res = await apiFetch(`/api/challenges/${challengeId}/activities/${activityId}/log`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (res.ok) {
+    const data = await res.json();
+    recordQuickLog(activityId);
+    if (data.surprise) {
+      showToast(data.surprise.title, data.surprise.description, "surprise");
+    }
+    if (data.currencyEarned) {
+      showToast("Points Earned", `You earned ${data.currencyEarned} points!`, "success");
+      spawnConfetti();
+    }
+    loadAllData();
+  } else {
+    const data = await res.json().catch(() => ({}));
+    alert(data.error || "Failed to log activity");
+  }
 }
 
 // ========== HOME TAB ==========
@@ -463,13 +723,101 @@ async function refreshPoints() {
   document.getElementById("user-points").textContent = total + symbol;
 }
 
-// ========== CHALLENGE MODAL ==========
+// ========== CHALLENGE MODAL / WIZARD ==========
 
 let editChallengeData = null;
+let wizardCurrentStep = 1;
+
+function wizardGoTo(step) {
+  wizardCurrentStep = step;
+  document.querySelectorAll(".wizard-step").forEach(el => {
+    el.classList.add("hidden");
+  });
+  document.getElementById("wizard-step-" + step).classList.remove("hidden");
+  document.querySelectorAll(".step-indicator").forEach(el => {
+    const s = parseInt(el.dataset.step);
+    const bar = el.querySelector("div");
+    const label = el.querySelector("span");
+    if (s === step) {
+      bar.classList.remove("bg-slate-200", "bg-green-500");
+      bar.classList.add("bg-indigo-600");
+      label.classList.remove("text-slate-400");
+      label.classList.add("text-indigo-600");
+    } else if (s < step) {
+      bar.classList.remove("bg-slate-200", "bg-indigo-600");
+      bar.classList.add("bg-green-500");
+      label.classList.remove("text-slate-400", "text-indigo-600");
+      label.classList.add("text-green-600");
+    } else {
+      bar.classList.remove("bg-green-500", "bg-indigo-600");
+      bar.classList.add("bg-slate-200");
+      label.classList.remove("text-green-600", "text-indigo-600");
+      label.classList.add("text-slate-400");
+    }
+  });
+  
+  // Rebuild prize goal dropdowns when entering step 3
+  if (step === 3) {
+    refreshPrizeGoalDropdowns();
+  }
+}
+
+function wizardNext() {
+  if (wizardCurrentStep < 3) wizardGoTo(wizardCurrentStep + 1);
+}
+
+function wizardPrev() {
+  if (wizardCurrentStep > 1) wizardGoTo(wizardCurrentStep - 1);
+}
 
 function toggleChallengeFamilySelect() {
   const type = document.getElementById("challenge-type").value;
   document.getElementById("family-select-group").classList.toggle("hidden", type === "SelfOnly");
+}
+
+function togglePrizeCostInputs() {
+  const hasCurrency = !!document.getElementById("challenge-currency").value.trim();
+  document.querySelectorAll(".prize-cost").forEach(input => {
+    input.disabled = !hasCurrency;
+    if (!hasCurrency) input.value = "";
+  });
+}
+
+function toggleGoalFields(selectEl) {
+  const type = selectEl.value;
+  const container = selectEl.closest('.goal-field');
+  const targetGroup = container.querySelector('.goal-target-group');
+  if (type === 'Collection') {
+    targetGroup.classList.add('hidden');
+    targetGroup.querySelectorAll('input').forEach(i => i.removeAttribute('required'));
+  } else {
+    targetGroup.classList.remove('hidden');
+  }
+}
+
+function toggleActivityFields(selectEl) {
+  const type = selectEl.value;
+  const container = selectEl.closest('.activity-field, .challenge-activity-field');
+  const unit = container.querySelector('.act-unit');
+  const timeunit = container.querySelector('.act-timeunit');
+  
+  unit.classList.remove('hidden');
+  timeunit.classList.add('hidden');
+  
+  if (type === 'Occurrence') {
+    unit.classList.add('hidden');
+    unit.removeAttribute('required');
+    timeunit.classList.add('hidden');
+    timeunit.removeAttribute('required');
+  } else if (type === 'Distance') {
+    unit.placeholder = 'Unit (km, mi)';
+  } else if (type === 'Time') {
+    unit.placeholder = 'Unit (min, hr)';
+  } else if (type === 'DistanceAndTime') {
+    unit.placeholder = 'Dist Unit (km)';
+    timeunit.classList.remove('hidden');
+    timeunit.placeholder = 'Time Unit (min)';
+  }
 }
 
 function showCreateChallengeForm() {
@@ -493,6 +841,8 @@ function showCreateChallengeForm() {
   addGoalField();
   addPrizeField();
   document.getElementById("challenge-modal").classList.remove("hidden");
+  togglePrizeCostInputs();
+  wizardGoTo(1);
 }
 
 function showEditChallengeForm(challengeId) {
@@ -534,11 +884,14 @@ function showEditChallengeForm(challengeId) {
   }
 
   document.getElementById("challenge-modal").classList.remove("hidden");
+  togglePrizeCostInputs();
+  wizardGoTo(1);
 }
 
 function closeChallengeModal() {
   document.getElementById("challenge-modal").classList.add("hidden");
   editChallengeData = null;
+  wizardCurrentStep = 1;
 }
 
 function addGoalField(goal) {
@@ -553,24 +906,36 @@ function addGoalField(goal) {
     ? goal.activities.map(a => makeActivityHtml(a)).join("")
     : makeActivityHtml();
 
+  const isHidden = goal && goal.isHidden;
+  const isCollection = goal && goal.type === 'Collection';
+
   div.innerHTML = `
-    <button type="button" onclick="this.closest('.goal-field').remove()" class="absolute top-2 right-2 text-slate-400 hover:text-red-500 text-lg leading-none">&times;</button>
+    <button type="button" onclick="(!this.closest('.goal-field').dataset.editId || confirm('Removing this goal will delete all past progress logs when saved. Are you sure?')) && this.closest('.goal-field').remove()" class="absolute top-2 right-2 text-slate-400 hover:text-red-500 text-lg leading-none">&times;</button>
     <div class="grid grid-cols-2 gap-2 mb-2">
       <input type="text" placeholder="Goal description" value="${goal ? escapeHtml(goal.description) : ""}" required
         class="goal-desc w-full py-2 px-2 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
-      <select class="goal-type w-full py-2 px-2 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
-        <option value="Achievement" ${goal && goal.type === "Achievement" ? "selected" : ""}>Achievement</option>
+      <select onchange="toggleGoalFields(this)" class="goal-type w-full py-2 px-2 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
+        <option value="Achievement" ${(!goal || goal.type === "Achievement") ? "selected" : ""}>Achievement</option>
+        <option value="Collection" ${(goal && goal.type === "Collection") ? "selected" : ""}>Collection</option>
       </select>
     </div>
-    <div class="grid grid-cols-3 gap-2 mb-2">
-      <input type="number" step="any" placeholder="Target" value="${goal && goal.targetValue != null ? goal.targetValue : ""}"
+    <div class="goal-target-group grid grid-cols-2 gap-2 mb-2 ${isCollection ? 'hidden' : ''}">
+      <input type="number" inputmode="decimal" step="any" placeholder="Target" value="${goal && goal.targetValue != null ? goal.targetValue : ""}"
         class="goal-target w-full py-2 px-2 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
       <input type="text" placeholder="Unit" value="${goal && goal.unit ? escapeHtml(goal.unit) : ""}"
         class="goal-unit w-full py-2 px-2 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
-      <label class="flex items-center gap-2 text-sm text-slate-600">
-        <input type="checkbox" class="goal-hidden" ${goal && goal.isHidden ? "checked" : ""}>
-        Hidden
-      </label>
+    </div>
+    <div class="mb-2">
+      <button type="button" onclick="toggleGoalAdvanced(this)" class="text-xs font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1">
+        <span>⚙️ Advanced</span>
+        <span class="advanced-arrow text-xs">▸</span>
+      </button>
+      <div class="goal-advanced hidden mt-2 pl-2 border-l-2 border-slate-200">
+        <label class="flex items-center gap-2 text-sm text-slate-600">
+          <input type="checkbox" class="goal-hidden" ${isHidden ? "checked" : ""}>
+          Hidden goal — surprises user on completion
+        </label>
+      </div>
     </div>
     <div class="activities-container">
       ${activitiesHtml}
@@ -579,27 +944,42 @@ function addGoalField(goal) {
   `;
   container.appendChild(div);
 
-  // Reindex
   reindexGoals();
 }
 
+function toggleGoalAdvanced(btn) {
+  const advanced = btn.closest(".goal-field").querySelector(".goal-advanced");
+  const arrow = btn.querySelector(".advanced-arrow");
+  advanced.classList.toggle("hidden");
+  arrow.textContent = advanced.classList.contains("hidden") ? "▸" : "▾";
+}
+
 function makeActivityHtml(activity) {
+  const actType = activity ? activity.activityType : "Occurrence";
+  const showUnit = actType !== "Occurrence";
+  const showTimeUnit = actType === "DistanceAndTime";
   return `
-    <div class="activity-field flex items-center gap-1.5 mb-1">
+    <div class="activity-field p-2 mb-1.5 bg-white rounded-lg border border-slate-100">
       ${activity && activity.id ? `<input type="hidden" class="act-id" value="${activity.id}">` : ""}
-      <input type="text" placeholder="Name" value="${activity ? escapeHtml(activity.name) : ""}" required
-        class="act-name flex-1 min-w-0 py-1.5 px-2 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-xs">
-      <select class="act-type py-1.5 px-1 bg-white rounded-lg border border-slate-200 text-xs">
-        <option value="Occurrence" ${activity && activity.activityType === "Occurrence" ? "selected" : ""}>Occurrence</option>
-        <option value="Distance" ${activity && activity.activityType === "Distance" ? "selected" : ""}>Distance</option>
-        <option value="Time" ${activity && activity.activityType === "Time" ? "selected" : ""}>Time</option>
-        <option value="DistanceAndTime" ${activity && activity.activityType === "DistanceAndTime" ? "selected" : ""}>Dist+Time</option>
-      </select>
-      <input type="text" placeholder="Unit" value="${activity ? escapeHtml(activity.unit) : ""}" required
-        class="act-unit w-16 py-1.5 px-1 bg-white rounded-lg border border-slate-200 text-xs">
-      <input type="number" step="any" placeholder="Pts" value="${activity ? activity.pointValue : "1"}" required
-        class="act-points w-14 py-1.5 px-1 bg-white rounded-lg border border-slate-200 text-xs">
-      <button type="button" onclick="this.closest('.activity-field').remove()" class="text-red-400 hover:text-red-600 text-xs">&times;</button>
+      <div class="grid grid-cols-[1fr_auto_auto] gap-1.5 items-center mb-1.5">
+        <input type="text" placeholder="Name" value="${activity ? escapeHtml(activity.name) : ""}" required
+          class="act-name w-full py-1.5 px-2 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-xs">
+        <select onchange="toggleActivityFields(this)" class="act-type py-1.5 px-1 bg-white rounded-lg border border-slate-200 text-xs">
+          <option value="Occurrence" ${actType === "Occurrence" ? "selected" : ""}>Occurrence</option>
+          <option value="Distance" ${actType === "Distance" ? "selected" : ""}>Distance</option>
+          <option value="Time" ${actType === "Time" ? "selected" : ""}>Time</option>
+          <option value="DistanceAndTime" ${actType === "DistanceAndTime" ? "selected" : ""}>Dist+Time</option>
+        </select>
+        <button type="button" onclick="this.closest('.activity-field').remove()" class="text-red-400 hover:text-red-600 text-sm leading-none">&times;</button>
+      </div>
+      <div class="grid grid-cols-3 gap-1.5 items-center">
+        <input type="text" placeholder="Unit" value="${activity ? escapeHtml(activity.unit) : ""}" 
+          class="act-unit w-full py-1.5 px-1 bg-white rounded-lg border border-slate-200 text-xs ${showUnit ? '' : 'hidden'}">
+        <input type="text" placeholder="Time Unit (min)" value="${activity && activity.timeUnit ? escapeHtml(activity.timeUnit) : ""}" 
+          class="act-timeunit w-full py-1.5 px-1 bg-white rounded-lg border border-slate-200 text-xs ${showTimeUnit ? '' : 'hidden'}">
+        <input type="number" inputmode="decimal" step="any" placeholder="Pts" value="${activity ? activity.pointValue : "1"}" required
+          class="act-points w-full py-1.5 px-1 bg-white rounded-lg border border-slate-200 text-xs">
+      </div>
     </div>
   `;
 }
@@ -616,24 +996,31 @@ function reindexGoals() {
 function addChallengeActivityField(activity) {
   const container = document.getElementById("challenge-activities-container");
   const div = document.createElement("div");
-  div.className = "challenge-activity-field mb-1";
+  div.className = "challenge-activity-field mb-1.5 p-2 bg-slate-50 rounded-lg border border-slate-100";
   if (activity && activity.id) div.dataset.editId = activity.id;
+  const actType = activity ? activity.activityType : "Occurrence";
+  const showUnit = actType !== "Occurrence";
+  const showTimeUnit = actType === "DistanceAndTime";
   div.innerHTML = `
-    <div class="flex items-center gap-1.5">
-      ${activity && activity.id ? `<input type="hidden" class="act-id" value="${activity.id}">` : ""}
+    ${activity && activity.id ? `<input type="hidden" class="act-id" value="${activity.id}">` : ""}
+    <div class="grid grid-cols-[1fr_auto_auto] gap-1.5 items-center mb-1.5">
       <input type="text" placeholder="Name" value="${activity ? escapeHtml(activity.name) : ""}" required
-        class="act-name flex-1 min-w-0 py-1.5 px-2 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-xs">
-      <select class="act-type py-1.5 px-1 bg-white rounded-lg border border-slate-200 text-xs">
-        <option value="Occurrence" ${activity && activity.activityType === "Occurrence" ? "selected" : ""}>Occurrence</option>
-        <option value="Distance" ${activity && activity.activityType === "Distance" ? "selected" : ""}>Distance</option>
-        <option value="Time" ${activity && activity.activityType === "Time" ? "selected" : ""}>Time</option>
-        <option value="DistanceAndTime" ${activity && activity.activityType === "DistanceAndTime" ? "selected" : ""}>Dist+Time</option>
+        class="act-name w-full py-1.5 px-2 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-xs">
+      <select onchange="toggleActivityFields(this)" class="act-type py-1.5 px-1 bg-white rounded-lg border border-slate-200 text-xs">
+        <option value="Occurrence" ${actType === "Occurrence" ? "selected" : ""}>Occurrence</option>
+        <option value="Distance" ${actType === "Distance" ? "selected" : ""}>Distance</option>
+        <option value="Time" ${actType === "Time" ? "selected" : ""}>Time</option>
+        <option value="DistanceAndTime" ${actType === "DistanceAndTime" ? "selected" : ""}>Dist+Time</option>
       </select>
-      <input type="text" placeholder="Unit" value="${activity ? escapeHtml(activity.unit) : ""}" required
-        class="act-unit w-16 py-1.5 px-1 bg-white rounded-lg border border-slate-200 text-xs">
-      <input type="number" step="any" placeholder="Pts" value="${activity ? activity.pointValue : "1"}" required
-        class="act-points w-14 py-1.5 px-1 bg-white rounded-lg border border-slate-200 text-xs">
-      <button type="button" onclick="this.closest('.challenge-activity-field').remove()" class="text-red-400 hover:text-red-600 text-xs">&times;</button>
+      <button type="button" onclick="this.closest('.challenge-activity-field').remove()" class="text-red-400 hover:text-red-600 text-sm leading-none">&times;</button>
+    </div>
+    <div class="grid grid-cols-3 gap-1.5 items-center">
+      <input type="text" placeholder="Unit" value="${activity ? escapeHtml(activity.unit) : ""}" 
+        class="act-unit w-full py-1.5 px-1 bg-white rounded-lg border border-slate-200 text-xs ${showUnit ? '' : 'hidden'}">
+      <input type="text" placeholder="Time Unit (min)" value="${activity && activity.timeUnit ? escapeHtml(activity.timeUnit) : ""}" 
+        class="act-timeunit w-full py-1.5 px-1 bg-white rounded-lg border border-slate-200 text-xs ${showTimeUnit ? '' : 'hidden'}">
+      <input type="number" inputmode="decimal" step="any" placeholder="Pts" value="${activity ? activity.pointValue : "1"}" required
+        class="act-points w-full py-1.5 px-1 bg-white rounded-lg border border-slate-200 text-xs">
     </div>
   `;
   container.appendChild(div);
@@ -659,7 +1046,7 @@ function addPrizeField(prize, allGoals) {
     <div class="grid grid-cols-2 gap-2 mb-2">
       <input type="text" placeholder="Prize description" value="${prize ? escapeHtml(prize.description) : ""}" required
         class="prize-desc w-full py-2 px-2 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
-      <input type="number" step="any" placeholder="Cost (pts, leave empty for free)" value="${prize && prize.cost != null ? prize.cost : ""}"
+      <input type="number" inputmode="decimal" step="any" placeholder="Cost (pts, leave empty for free)" value="${prize && prize.cost != null ? prize.cost : ""}"
         class="prize-cost w-full py-2 px-2 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
     </div>
     <div class="flex items-center gap-3 text-sm text-slate-600">
@@ -676,6 +1063,7 @@ function addPrizeField(prize, allGoals) {
     </div>
   `;
   container.appendChild(div);
+  togglePrizeCostInputs();
 }
 
 function buildPrizeGoalDropdown(prize) {
@@ -733,9 +1121,10 @@ async function submitChallenge(event) {
       const name = a.querySelector(".act-name").value;
       const activityType = a.querySelector(".act-type").value;
       const actUnit = a.querySelector(".act-unit").value;
+      const actTimeUnit = a.querySelector(".act-timeunit").value;
       const pointValue = a.querySelector(".act-points").value;
-      if (name && actUnit && pointValue) {
-        const act = { name, activityType, unit: actUnit, pointValue: parseFloat(pointValue) };
+      if (name && pointValue) {
+        const act = { name, activityType, unit: actUnit || "times", timeUnit: actTimeUnit || null, pointValue: parseFloat(pointValue) };
         if (actIdInput && actIdInput.value) act.id = actIdInput.value;
         activities.push(act);
       }
@@ -783,9 +1172,10 @@ async function submitChallenge(event) {
     const name = a.querySelector(".act-name").value;
     const activityType = a.querySelector(".act-type").value;
     const actUnit = a.querySelector(".act-unit").value;
+    const actTimeUnit = a.querySelector(".act-timeunit").value;
     const pointValue = a.querySelector(".act-points").value;
-    if (name && actUnit && pointValue) {
-      const act = { name, activityType, unit: actUnit, pointValue: parseFloat(pointValue) };
+    if (name && pointValue) {
+      const act = { name, activityType, unit: actUnit || "times", timeUnit: actTimeUnit || null, pointValue: parseFloat(pointValue) };
       if (actIdInput && actIdInput.value) act.id = actIdInput.value;
       challengeActivities.push(act);
     }
@@ -976,19 +1366,23 @@ function makeChallengeActivityForms(challengeId, activities) {
   return activities.map(a => {
     const isDistTime = a.activityType === "DistanceAndTime";
     return `
-      <form onsubmit="logActivity('${challengeId}', '${a.id}', event)" class="flex items-center gap-2 mt-2 flex-wrap">
-        <span class="text-sm font-medium text-slate-600">${escapeHtml(a.name)} (${a.pointValue}/${escapeHtml(a.unit)}):</span>
+      <form onsubmit="logActivity('${challengeId}', '${a.id}', event)" class="flex flex-col gap-2 mt-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
+        <span class="text-sm font-semibold text-slate-700">${escapeHtml(a.name)} <span class="text-xs font-normal text-slate-500">(${a.pointValue} pts/${escapeHtml(a.unit)})</span></span>
         ${isDistTime ? `
-          <input type="number" step="any" placeholder="Distance (${escapeHtml(a.unit)})" required
-            class="dist-input flex-1 min-w-[70px] py-2 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
-          <input type="number" step="any" placeholder="Time (min)" required
-            class="time-input flex-1 min-w-[70px] py-2 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
+          <div class="grid grid-cols-2 gap-2">
+            <input type="number" inputmode="decimal" step="any" placeholder="Distance (${escapeHtml(a.unit)})" required
+              class="dist-input w-full py-2 px-3 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
+            <input type="number" inputmode="decimal" step="any" placeholder="Time (${a.timeUnit ? escapeHtml(a.timeUnit) : 'min'})" required
+              class="time-input w-full py-2 px-3 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
+          </div>
         ` : `
-          <input type="number" step="any" placeholder="${escapeHtml(a.unit)}" required
-            class="amount-input flex-1 min-w-[80px] py-2 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
+          <input type="number" inputmode="decimal" step="any" placeholder="Amount (${escapeHtml(a.unit)})" required
+            class="amount-input w-full py-2 px-3 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
         `}
-        <input type="text" placeholder="Notes" class="notes-input py-2 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm flex-1 min-w-[100px]">
-        <button type="submit" class="py-2 px-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors text-sm">Log</button>
+        <div class="flex gap-2">
+          <input type="text" placeholder="Notes (optional)" class="notes-input flex-1 py-2 px-3 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
+          <button type="submit" class="py-2 px-5 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition-colors text-sm whitespace-nowrap shadow-sm">Log Activity</button>
+        </div>
       </form>
     `;
   }).join("");
@@ -1001,19 +1395,23 @@ function renderGoalActions(challenge) {
     actionsDiv.innerHTML = goal.activities.map(a => {
       const isDistTime = a.activityType === "DistanceAndTime";
       return `
-        <form onsubmit="logActivity('${challenge.id}', '${a.id}', event)" class="flex items-center gap-2 mt-2 flex-wrap">
-          <span class="text-sm font-medium text-slate-600">${escapeHtml(a.name)} (${a.pointValue}/${escapeHtml(a.unit)}):</span>
+        <form onsubmit="logActivity('${challenge.id}', '${a.id}', event)" class="flex flex-col gap-2 mt-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
+          <span class="text-sm font-semibold text-slate-700">${escapeHtml(a.name)} <span class="text-xs font-normal text-slate-500">(${a.pointValue} pts/${escapeHtml(a.unit)})</span></span>
           ${isDistTime ? `
-            <input type="number" step="any" placeholder="Distance (${escapeHtml(a.unit)})" required
-              class="dist-input flex-1 min-w-[70px] py-2 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
-            <input type="number" step="any" placeholder="Time (min)" required
-              class="time-input flex-1 min-w-[70px] py-2 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
+            <div class="grid grid-cols-2 gap-2">
+              <input type="number" inputmode="decimal" step="any" placeholder="Distance (${escapeHtml(a.unit)})" required
+                class="dist-input w-full py-2 px-3 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
+              <input type="number" inputmode="decimal" step="any" placeholder="Time (${a.timeUnit ? escapeHtml(a.timeUnit) : 'min'})" required
+                class="time-input w-full py-2 px-3 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
+            </div>
           ` : `
-            <input type="number" step="any" placeholder="${escapeHtml(a.unit)}" required
-              class="amount-input flex-1 min-w-[80px] py-2 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
+            <input type="number" inputmode="decimal" step="any" placeholder="Amount (${escapeHtml(a.unit)})" required
+              class="amount-input w-full py-2 px-3 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
           `}
-          <input type="text" placeholder="Notes" class="notes-input py-2 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm flex-1 min-w-[100px]">
-          <button type="submit" class="py-2 px-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors text-sm">Log</button>
+          <div class="flex gap-2">
+            <input type="text" placeholder="Notes (optional)" class="notes-input flex-1 py-2 px-3 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
+            <button type="submit" class="py-2 px-5 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition-colors text-sm whitespace-nowrap shadow-sm">Log Activity</button>
+          </div>
         </form>
       `;
     }).join("");
@@ -1094,6 +1492,7 @@ async function logActivity(challengeId, activityId, event) {
     }
     if (data.currencyEarned) {
       showToast("Points Earned", `You earned ${data.currencyEarned} points!`, "success");
+      spawnConfetti();
     }
     showProgress(challengeId);
     loadAllData();

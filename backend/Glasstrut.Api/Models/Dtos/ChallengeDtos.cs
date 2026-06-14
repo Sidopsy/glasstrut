@@ -4,6 +4,7 @@ public record CreateActivityDto(
     string Name,
     string Unit,
     decimal PointValue,
+    string? TimeUnit = null,
     string ActivityType = "Occurrence"
 );
 
@@ -12,6 +13,7 @@ public record UpdateActivityDto(
     string Name,
     string Unit,
     decimal PointValue,
+    string? TimeUnit = null,
     string ActivityType = "Occurrence"
 );
 
@@ -96,6 +98,7 @@ public record ChallengeActivityDto(
     string Name,
     string ActivityType,
     string Unit,
+    string? TimeUnit,
     decimal PointValue
 );
 
