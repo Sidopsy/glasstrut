@@ -85,4 +85,19 @@
 - [x] Balance + streak displayed in self and family progress views
 - [x] `currencyEarned` shown in activity log entries + toast on log
 - [x] `refreshPoints()` sums `currencyBalance` across all challenges with matching currency
+
+## Phase 11 — TimeUnit & Test Fixes
+- [x] Re-added `ChallengeActivity.TimeUnit` column after it was mistakenly removed
+- [x] Added `ALTER TABLE` startup SQL in Program.cs for existing databases
+- [x] Added `PendingModelChangesWarning` suppression in test factory
+
+## Phase 12 — Chronicle Redemptions, Challenge Deletion & Log Editing
+- [x] Unified chronicle feed endpoint (`GET /api/chronicle`) combining activity logs and prize redemptions
+- [x] Paginated chronicle feed with offset/limit + infinite scroll on frontend
+- [x] Prize redemption entries appear in Family Chronicles on Home tab
+- [x] Delete challenge endpoint (`DELETE /api/challenges/{id}`) with cascade delete of all related data
+- [x] Delete challenge button visible to creator with styled confirmation modal
+- [x] Edit progress entry endpoint (`PUT /api/challenges/{id}/activities/{aid}/log/{eid}`) with recalculate logic
+- [x] Inline edit form on activity log entries (amount, time, notes)
+- [x] Recalculates currency balance and goal progress on edit; handles completion/un-completion
 - [ ] Notifications (optional)

@@ -188,6 +188,141 @@ public class GoalService : IGoalService
         return new LogActivityResponse(progressDto, null, currencyEarned);
     }
 
+    public async Task<LogActivityResponse> UpdateActivityEntryAsync(string userId, Guid challengeId, Guid activityId, Guid entryId, LogProgressRequest request)
+    {
+        if (request.Amount <= 0)
+            throw new InvalidOperationException("Amount must be positive.");
+
+        var entry = await _db.ProgressEntries
+            .Include(e => e.Activity)
+                .ThenInclude(a => a.Goal)
+                    .ThenInclude(g => g!.Prizes)
+            .Include(e => e.Activity)
+                .ThenInclude(a => a.Challenge)
+            .FirstOrDefaultAsync(e => e.Id == entryId && e.ChallengeActivityId == activityId)
+            ?? throw new InvalidOperationException("Progress entry not found.");
+
+        if (entry.UserId != userId)
+            throw new UnauthorizedAccessException("You can only edit your own entries.");
+
+        var challenge = entry.Activity.Challenge;
+
+        if (challenge.Type == "SelfOnly")
+        {
+            if (challenge.CreatedById != userId)
+                throw new UnauthorizedAccessException("This challenge does not belong to you.");
+        }
+        else
+        {
+            var isMember = await _db.FamilyMembers
+                .AnyAsync(m => m.FamilyId == challenge.FamilyId && m.UserId == userId);
+            if (!isMember)
+                throw new UnauthorizedAccessException("You are not a member of this family.");
+
+            if (challenge.Type == "Targeted")
+            {
+                var isTargeted = await _db.ChallengeTargets
+                    .AnyAsync(t => t.ChallengeId == challengeId && t.UserId == userId);
+                if (!isTargeted)
+                    throw new UnauthorizedAccessException("You are not targeted in this challenge.");
+            }
+        }
+
+        var oldCurrency = entry.CurrencyEarned;
+        decimal? newCurrency = null;
+        if (!string.IsNullOrEmpty(challenge.CurrencyName))
+        {
+            var raw = request.Amount * entry.Activity.PointValue;
+            if (raw > 0) newCurrency = raw;
+        }
+
+        var balance = await _db.ChallengeCurrencyBalances
+            .FirstOrDefaultAsync(b => b.ChallengeId == challengeId && b.UserId == userId);
+        if (balance != null)
+        {
+            var currencyDiff = (newCurrency ?? 0) - (oldCurrency ?? 0);
+            if (currencyDiff != 0)
+            {
+                balance.Balance += currencyDiff;
+                balance.UpdatedAt = DateTime.UtcNow;
+            }
+        }
+
+        GoalProgressDto? progressDto = null;
+        string? surpriseTitle = null;
+        string? surpriseDescription = null;
+
+        if (entry.Activity.Goal != null)
+        {
+            var goal = entry.Activity.Goal;
+            var oldDelta = entry.Amount * entry.Activity.PointValue;
+            var newDelta = request.Amount * entry.Activity.PointValue;
+            var deltaChange = newDelta - oldDelta;
+
+            var progress = await _db.GoalProgresses
+                .FirstOrDefaultAsync(p => p.ChallengeGoalId == goal.Id && p.UserId == userId);
+
+            if (progress != null)
+            {
+                progress.CurrentValue += deltaChange;
+                progress.UpdatedAt = DateTime.UtcNow;
+
+                if (goal.TargetValue.HasValue)
+                {
+                    var wasCompleted = progress.IsCompleted;
+                    var nowCompleted = progress.CurrentValue >= goal.TargetValue.Value;
+
+                    if (nowCompleted && !wasCompleted)
+                    {
+                        progress.IsCompleted = true;
+                        progress.CompletedAt = DateTime.UtcNow;
+
+                        if (goal.Type == "Achievement")
+                            await AutoAwardAchievementAsync(userId, goal);
+
+                        if (goal.IsHidden)
+                        {
+                            var linkedPrize = goal.Prizes.FirstOrDefault();
+                            if (linkedPrize != null)
+                            {
+                                await AutoClaimPrizeAsync(userId, challengeId, linkedPrize);
+                                surpriseTitle = $"Surprise! You earned {linkedPrize.Description}";
+                                surpriseDescription = $"You completed the hidden goal '{goal.Description}' and earned a reward!";
+                            }
+                            else
+                            {
+                                surpriseTitle = $"Hidden goal completed: {goal.Description}";
+                                surpriseDescription = "Great job!";
+                            }
+                        }
+                    }
+                    else if (!nowCompleted && wasCompleted)
+                    {
+                        progress.IsCompleted = false;
+                        progress.CompletedAt = null;
+                    }
+                }
+
+                progressDto = MapProgressDto(progress, goal);
+            }
+        }
+
+        entry.Amount = request.Amount;
+        entry.TimeAmount = request.TimeAmount;
+        entry.Unit = entry.Activity.Unit;
+        entry.CurrencyEarned = newCurrency;
+        entry.Notes = request.Notes;
+        entry.RecordedAt = request.ClientRecordedAt ?? DateTime.UtcNow;
+
+        await _db.SaveChangesAsync();
+
+        SurpriseDto? surprise = surpriseTitle != null
+            ? new SurpriseDto(surpriseTitle, surpriseDescription ?? "")
+            : null;
+
+        return new LogActivityResponse(progressDto, surprise, newCurrency);
+    }
+
     public async Task<ProgressAndAchievementsDto> GetChallengeProgressAsync(string userId, Guid challengeId)
     {
         var challenge = await _db.Challenges
@@ -385,8 +520,64 @@ public class GoalService : IGoalService
             e.Activity.TimeUnit,
             e.Notes,
             e.RecordedAt,
-            e.CurrencyEarned
+            e.CurrencyEarned,
+            e.ChallengeActivityId
         )).ToList();
+    }
+
+    public async Task<List<ChronicleEntryDto>> GetChronicleFeedAsync(string userId, int offset, int limit)
+    {
+        var userFamilyIds = await _db.FamilyMembers
+            .Where(m => m.UserId == userId)
+            .Select(m => m.FamilyId)
+            .ToListAsync();
+
+        var accessibleChallengeIds = await _db.Challenges
+            .Where(c =>
+                (c.Type == "SelfOnly" && c.CreatedById == userId) ||
+                (c.Type != "SelfOnly" && c.FamilyId != null && userFamilyIds.Contains(c.FamilyId.Value)))
+            .Select(c => c.Id)
+            .ToListAsync();
+
+        var activityEntries = await _db.ProgressEntries
+            .Include(e => e.Activity)
+            .Include(e => e.User)
+            .Where(e => accessibleChallengeIds.Contains(e.Activity.ChallengeId))
+            .Select(e => new ChronicleEntryDto(
+                e.Id,
+                e.User.Email ?? "unknown",
+                "activity",
+                e.Activity.Name,
+                e.Amount,
+                e.Unit,
+                e.CurrencyEarned,
+                null, null,
+                e.RecordedAt
+            ))
+            .ToListAsync();
+
+        var redemptionEntries = await _db.Set<PrizeClaim>()
+            .Include(c => c.Prize)
+            .Include(c => c.User)
+            .Where(c => accessibleChallengeIds.Contains(c.ChallengeId))
+            .Select(c => new ChronicleEntryDto(
+                c.Id,
+                c.User.Email ?? "unknown",
+                "redemption",
+                null, null, null, null,
+                c.Prize.Description,
+                c.Prize.Cost,
+                c.ClaimedAt
+            ))
+            .ToListAsync();
+
+        var all = activityEntries.Concat(redemptionEntries)
+            .OrderByDescending(e => e.RecordedAt)
+            .Skip(offset)
+            .Take(limit)
+            .ToList();
+
+        return all;
     }
 
     public async Task<List<AchievementDto>> GetUserAchievementsAsync(string userId)

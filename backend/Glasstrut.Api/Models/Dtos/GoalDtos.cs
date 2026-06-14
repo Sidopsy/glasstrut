@@ -73,5 +73,19 @@ public record ActivityLogEntryDto(
     string? TimeUnit,
     string? Notes,
     DateTime RecordedAt,
-    decimal? CurrencyEarned = null
+    decimal? CurrencyEarned = null,
+    Guid? ActivityId = null
+);
+
+public record ChronicleEntryDto(
+    Guid Id,
+    string UserEmail,
+    string Type,
+    string? ActivityName,
+    decimal? Amount,
+    string? Unit,
+    decimal? CurrencyEarned,
+    string? PrizeDescription,
+    decimal? Cost,
+    DateTime RecordedAt
 );

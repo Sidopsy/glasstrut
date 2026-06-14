@@ -30,6 +30,26 @@ public static class GoalEndpoints
             }
         });
 
+        group.MapPut("/challenges/{challengeId:guid}/activities/{activityId:guid}/log/{entryId:guid}",
+            async (Guid challengeId, Guid activityId, Guid entryId, LogProgressRequest request,
+                   IGoalService service, ClaimsPrincipal user) =>
+        {
+            var userId = user.FindFirstValue(ClaimTypes.NameIdentifier)!;
+            try
+            {
+                var result = await service.UpdateActivityEntryAsync(userId, challengeId, activityId, entryId, request);
+                return Results.Ok(result);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Results.Forbid();
+            }
+        });
+
         group.MapGet("/challenges/{challengeId:guid}/progress",
             async (Guid challengeId, IGoalService service, ClaimsPrincipal user) =>
         {
@@ -91,6 +111,13 @@ public static class GoalEndpoints
         {
             var userId = user.FindFirstValue(ClaimTypes.NameIdentifier)!;
             var result = await service.GetUserAchievementsAsync(userId);
+            return Results.Ok(result);
+        });
+
+        group.MapGet("/chronicle", async (int? offset, int? limit, IGoalService service, ClaimsPrincipal user) =>
+        {
+            var userId = user.FindFirstValue(ClaimTypes.NameIdentifier)!;
+            var result = await service.GetChronicleFeedAsync(userId, offset ?? 0, limit ?? 20);
             return Results.Ok(result);
         });
     }

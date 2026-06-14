@@ -110,6 +110,44 @@ public class ChallengeService : IChallengeService
         return await GetChallengeAsync(userId, challenge.Id);
     }
 
+    public async Task DeleteChallengeAsync(string userId, Guid challengeId)
+    {
+        var challenge = await _db.Challenges
+            .FirstOrDefaultAsync(c => c.Id == challengeId)
+            ?? throw new InvalidOperationException("Challenge not found.");
+
+        if (challenge.CreatedById != userId)
+            throw new UnauthorizedAccessException("Only the creator can delete this challenge.");
+
+        var activityIds = await _db.ChallengeActivities
+            .Where(a => a.ChallengeId == challengeId)
+            .Select(a => a.Id)
+            .ToListAsync();
+
+        var goalIds = await _db.ChallengeGoals
+            .Where(g => g.ChallengeId == challengeId)
+            .Select(g => g.Id)
+            .ToListAsync();
+
+        var achievementIds = await _db.Achievements
+            .Where(a => a.ChallengeId == challengeId)
+            .Select(a => a.Id)
+            .ToListAsync();
+
+        await _db.ProgressEntries.Where(e => activityIds.Contains(e.ChallengeActivityId)).ExecuteDeleteAsync();
+        await _db.GoalProgresses.Where(p => goalIds.Contains(p.ChallengeGoalId)).ExecuteDeleteAsync();
+        await _db.UserAchievements.Where(ua => achievementIds.Contains(ua.AchievementId)).ExecuteDeleteAsync();
+        await _db.Achievements.Where(a => a.ChallengeId == challengeId).ExecuteDeleteAsync();
+        await _db.Set<PrizeClaim>().Where(c => c.ChallengeId == challengeId).ExecuteDeleteAsync();
+        await _db.ChallengeCurrencyBalances.Where(b => b.ChallengeId == challengeId).ExecuteDeleteAsync();
+        await _db.ChallengeActivities.Where(a => a.ChallengeId == challengeId).ExecuteDeleteAsync();
+        await _db.ChallengeGoals.Where(g => g.ChallengeId == challengeId).ExecuteDeleteAsync();
+        await _db.ChallengePrizes.Where(p => p.ChallengeId == challengeId).ExecuteDeleteAsync();
+        await _db.ChallengeTargets.Where(t => t.ChallengeId == challengeId).ExecuteDeleteAsync();
+        _db.Challenges.Remove(challenge);
+        await _db.SaveChangesAsync();
+    }
+
     private async Task MergeChallengeActivitiesAsync(Challenge challenge, List<UpdateActivityDto>? activityDtos)
     {
         if (activityDtos == null) return;

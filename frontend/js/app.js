@@ -12,6 +12,7 @@ let cachedChallenges = [];
 let cachedProgressMap = {};
 let cachedFamilies = [];
 let currentUserId = null;
+let currentUserEmail = null;
 
 function authHeaders() {
   const token = localStorage.getItem("token");
@@ -228,6 +229,7 @@ function showDashboard(email) {
   document.getElementById("bottom-nav").classList.remove("hidden");
 
   currentUserId = decodeUserId();
+  currentUserEmail = email || "";
 
   const storedUsername = localStorage.getItem("username");
   const displayName = storedUsername || (email ? email.split("@")[0] : "User");
@@ -267,6 +269,7 @@ function logout() {
   cachedProgressMap = {};
   cachedFamilies = [];
   currentUserId = null;
+  currentUserEmail = null;
   showAuth();
 }
 
@@ -670,43 +673,83 @@ function renderUpNext() {
   }).join("");
 }
 
+let chronicleOffset = 0;
+let chronicleLoading = false;
+let chronicleDone = false;
+let chronicleObserver = null;
+
 async function renderChronicleFeed() {
   const container = document.getElementById("chronicle-feed");
-  const allEntries = [];
-  for (const c of cachedChallenges) {
-    try {
-      const res = await apiFetch(`/api/challenges/${c.id}/activity-log?count=5`);
-      if (res.ok) {
-        const entries = await res.json();
-        allEntries.push(...entries);
+  chronicleOffset = 0;
+  chronicleDone = false;
+  chronicleLoading = false;
+  container.innerHTML = "";
+  await loadMoreChronicle();
+  setupChronicleInfiniteScroll();
+}
+
+async function loadMoreChronicle() {
+  if (chronicleLoading || chronicleDone) return;
+  chronicleLoading = true;
+  const container = document.getElementById("chronicle-feed");
+  try {
+    const res = await apiFetch(`/api/chronicle?offset=${chronicleOffset}&limit=20`);
+    if (!res.ok) { chronicleLoading = false; return; }
+    const entries = await res.json();
+    if (entries.length === 0) {
+      chronicleDone = true;
+      if (chronicleOffset === 0) {
+        container.innerHTML = "<p class='text-sm text-slate-500'>No activity yet. Log some progress in Quests!</p>";
       }
-    } catch { }
-  }
-  if (allEntries.length === 0) {
-    container.innerHTML = "<p class='text-sm text-slate-500'>No activity yet. Log some progress in Quests!</p>";
-    return;
-  }
-  allEntries.sort((a, b) => new Date(b.recordedAt) - new Date(a.recordedAt));
-  const top = allEntries.slice(0, 10);
-  const userIcons = {};
-  container.innerHTML = top.map(e => {
-    const email = e.userEmail || "";
-    if (email && !userIcons[email]) userIcons[email] = email[0].toUpperCase();
-    return `
-      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center gap-4">
-        <div class="h-12 w-12 rounded-full bg-indigo-100 flex items-center justify-center text-xl shrink-0 font-bold text-indigo-600">${userIcons[e.userEmail]}</div>
-        <div class="flex-1 min-w-0">
-          <p class="text-sm text-slate-600"><span class="font-bold text-slate-800">${escapeHtml(e.userEmail ? e.userEmail.split('@')[0] : "someone")}</span> logged</p>
-          <p class="font-bold text-slate-800 truncate">${escapeHtml(e.activityName)}</p>
-        </div>
-        <div class="text-right shrink-0">
-          <span class="font-bold text-green-500 bg-green-50 px-2 py-1 rounded-lg text-sm">+${e.amount} ${escapeHtml(e.unit || "")}</span>
-          ${e.currencyEarned ? `<p class="text-xs font-bold text-amber-600 mt-0.5">+${e.currencyEarned} pts</p>` : ""}
-          <p class="text-xs text-slate-400 mt-1">${timeAgo(e.recordedAt)}</p>
-        </div>
-      </div>
-    `;
-  }).join("");
+      chronicleLoading = false;
+      return;
+    }
+    chronicleOffset += entries.length;
+    const userIcons = {};
+    container.insertAdjacentHTML("beforeend", entries.map(e => {
+      const email = e.userEmail || "";
+      if (email && !userIcons[email]) userIcons[email] = email[0].toUpperCase();
+      return e.type === "redemption"
+        ? `<div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center gap-4">
+            <div class="h-12 w-12 rounded-full bg-amber-100 flex items-center justify-center text-xl shrink-0 font-bold text-amber-600">${userIcons[e.userEmail]}</div>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm text-slate-600"><span class="font-bold text-slate-800">${escapeHtml(e.userEmail ? e.userEmail.split('@')[0] : "someone")}</span> redeemed</p>
+              <p class="font-bold text-slate-800 truncate">🏅 ${escapeHtml(e.prizeDescription)}</p>
+            </div>
+            <div class="text-right shrink-0">
+              ${e.cost != null ? `<span class="font-bold text-amber-500 bg-amber-50 px-2 py-1 rounded-lg text-sm">${e.cost} pts</span>` : '<span class="font-bold text-green-500 bg-green-50 px-2 py-1 rounded-lg text-sm">Free</span>'}
+              <p class="text-xs text-slate-400 mt-1">${timeAgo(e.recordedAt)}</p>
+            </div>
+          </div>`
+        : `<div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center gap-4">
+            <div class="h-12 w-12 rounded-full bg-indigo-100 flex items-center justify-center text-xl shrink-0 font-bold text-indigo-600">${userIcons[e.userEmail]}</div>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm text-slate-600"><span class="font-bold text-slate-800">${escapeHtml(e.userEmail ? e.userEmail.split('@')[0] : "someone")}</span> logged</p>
+              <p class="font-bold text-slate-800 truncate">${escapeHtml(e.activityName)}</p>
+            </div>
+            <div class="text-right shrink-0">
+              <span class="font-bold text-green-500 bg-green-50 px-2 py-1 rounded-lg text-sm">+${e.amount} ${escapeHtml(e.unit || "")}</span>
+              ${e.currencyEarned ? `<p class="text-xs font-bold text-amber-600 mt-0.5">+${e.currencyEarned} pts</p>` : ""}
+              <p class="text-xs text-slate-400 mt-1">${timeAgo(e.recordedAt)}</p>
+            </div>
+          </div>`;
+    }).join(""));
+  } catch { }
+  chronicleLoading = false;
+}
+
+function setupChronicleInfiniteScroll() {
+  if (chronicleObserver) chronicleObserver.disconnect();
+  const sentinel = document.createElement("div");
+  sentinel.id = "chronicle-sentinel";
+  sentinel.className = "h-4";
+  document.getElementById("chronicle-feed").after(sentinel);
+  chronicleObserver = new IntersectionObserver(async (entries) => {
+    if (entries[0].isIntersecting) {
+      await loadMoreChronicle();
+    }
+  }, { rootMargin: "200px" });
+  chronicleObserver.observe(sentinel);
 }
 
 async function refreshPoints() {
@@ -1208,6 +1251,49 @@ async function submitChallenge(event) {
   }
 }
 
+// ========== DELETE CHALLENGE ==========
+
+function showDeleteChallengeConfirm(challengeId, challengeTitle) {
+  const existing = document.getElementById("delete-modal");
+  if (existing) existing.remove();
+
+  const modal = document.createElement("div");
+  modal.id = "delete-modal";
+  modal.className = "fixed inset-0 bg-black/50 z-[3000] flex items-center justify-center p-4";
+  modal.innerHTML = `
+    <div class="bg-white rounded-3xl p-6 shadow-lg max-w-sm w-full">
+      <div class="text-center mb-4">
+        <span class="text-5xl block mb-3">⚠️</span>
+        <h3 class="text-xl font-bold text-slate-800 mb-2">Delete Challenge?</h3>
+        <p class="text-sm text-slate-600">This will permanently delete <strong>"${escapeHtml(challengeTitle)}"</strong> and all its progress, achievements, and prize claims. This cannot be undone.</p>
+      </div>
+      <div class="flex gap-3">
+        <button onclick="this.closest('#delete-modal').remove()" class="flex-1 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-colors">Cancel</button>
+        <button onclick="deleteChallenge('${challengeId}')" class="flex-1 py-3 bg-red-500 text-white font-bold rounded-xl hover:bg-red-600 transition-colors">Delete</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+async function deleteChallenge(challengeId) {
+  const modal = document.getElementById("delete-modal");
+  const btn = modal?.querySelector("button:last-child");
+  if (btn) { btn.disabled = true; btn.textContent = "Deleting..."; }
+
+  const res = await apiFetch(`/api/challenges/${challengeId}`, { method: "DELETE" });
+  if (res.ok) {
+    if (modal) modal.remove();
+    showToast("Challenge Deleted", "The challenge and all its data have been removed.", "success");
+    loadAllData();
+  } else {
+    let error = "Failed to delete challenge";
+    try { const d = await res.json(); error = d.error || error; } catch {}
+    if (modal) modal.remove();
+    showToast("Error", error, "error");
+  }
+}
+
 // ========== QUESTS TAB ==========
 
 function renderQuestList() {
@@ -1240,6 +1326,7 @@ function renderQuestList() {
           </div>
           <div class="flex items-center gap-1">
             ${isCreator ? `<button onclick="event.stopPropagation(); showEditChallengeForm('${c.id}')" class="text-slate-400 hover:text-indigo-600 p-1" title="Edit">✏️</button>` : ""}
+            ${isCreator ? `<button onclick="event.stopPropagation(); showDeleteChallengeConfirm('${c.id}', '${escapeHtml(c.title)}')" class="text-slate-400 hover:text-red-500 p-1" title="Delete">🗑️</button>` : ""}
             <span class="text-slate-400">›</span>
           </div>
         </div>
@@ -1513,30 +1600,97 @@ async function logActivity(challengeId, activityId, event) {
 }
 
 async function renderActivityLog(challengeId) {
-  const res = await apiFetch(`/api/challenges/${challengeId}/activity-log?count=5`);
+  const res = await apiFetch(`/api/challenges/${challengeId}/activity-log?count=50`);
   if (!res.ok) return "";
   const entries = await res.json();
   if (!entries.length) return "";
 
   const userEmojis = {};
-  let html = `<div class="mt-4 pt-4 border-t border-slate-200"><h4 class="font-bold text-slate-800 mb-2">Recent Activity</h4>`;
+  let html = `<div class="mt-4 pt-4 border-t border-slate-200"><h4 class="font-bold text-slate-800 mb-2">Activity Log</h4>`;
   for (const e of entries) {
     const entryUserEmail = e.userEmail || "unknown";
     if (!userEmojis[entryUserEmail]) userEmojis[entryUserEmail] = entryUserEmail[0].toUpperCase();
-    const displayEmail = entryUserEmail;
-    html += `<div class="flex items-center gap-2 py-2 text-sm">
-      <span class="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center text-xs font-bold text-indigo-600 shrink-0">${userEmojis[displayEmail]}</span>
-      <span class="font-semibold text-slate-700">${escapeHtml(displayEmail.split('@')[0])}</span>
+    const isOwn = currentUserEmail && e.userEmail && e.userEmail === currentUserEmail;
+    html += `<div class="flex items-center gap-2 py-2 text-sm" data-entry-id="${e.id}" data-challenge-id="${challengeId}" data-activity-id="${e.activityId || ""}">
+      <span class="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center text-xs font-bold text-indigo-600 shrink-0">${userEmojis[entryUserEmail]}</span>
+      <span class="font-semibold text-slate-700">${escapeHtml(entryUserEmail.split('@')[0])}</span>
       <span class="text-slate-500">${escapeHtml(e.activityName)}</span>
       <span class="text-green-600 font-medium">+${e.amount} ${escapeHtml(e.unit || "")}</span>
       ${e.currencyEarned ? `<span class="text-amber-600 font-medium text-xs">+${e.currencyEarned} pts</span>` : ""}
       ${e.timeAmount ? `<span class="text-slate-400 text-xs">time: ${e.timeAmount} min</span>` : ""}
       ${e.notes ? `<span class="text-slate-400 italic text-xs">— ${escapeHtml(e.notes)}</span>` : ""}
       <span class="text-slate-400 text-xs ml-auto">${timeAgo(e.recordedAt)}</span>
+      ${isOwn ? `<button onclick="editLogEntry(this)" class="text-slate-300 hover:text-indigo-500 ml-1 text-xs" title="Edit">✏️</button>` : ""}
     </div>`;
   }
   html += `</div>`;
   return html;
+}
+
+function editLogEntry(btn) {
+  const row = btn.closest("[data-entry-id]");
+  if (!row) return;
+  const challengeId = row.dataset.challengeId;
+  const entryId = row.dataset.entryId;
+  const activityId = row.dataset.activityId;
+
+  const amountSpan = row.querySelector(".text-green-600");
+  const notesSpan = row.querySelector(".italic");
+  const timeSpan = row.querySelector(".text-slate-400.text-xs");
+
+  const currentAmount = amountSpan ? parseFloat(amountSpan.textContent.replace(/[+\s]/g, "").split(" ")[0]) || 0 : 0;
+  const currentNotes = notesSpan ? notesSpan.textContent.replace(/^—\s*/, "").trim() : "";
+  const currentTime = timeSpan && timeSpan.textContent.startsWith("time:") ? parseFloat(timeSpan.textContent.replace("time:", "")) || null : null;
+
+  row.innerHTML = `
+    <form onsubmit="saveLogEntryEdit('${challengeId}', '${activityId}', '${entryId}', event)" class="flex items-center gap-2 py-1 w-full">
+      <input type="number" inputmode="decimal" step="any" value="${currentAmount}" required
+        class="edit-amount w-16 py-1 px-1.5 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-xs">
+      ${currentTime !== null ? `<input type="number" inputmode="decimal" step="any" value="${currentTime}" 
+        class="edit-time w-16 py-1 px-1.5 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-xs" placeholder="Time">` : ""}
+      <input type="text" value="${escapeHtml(currentNotes)}" placeholder="Notes"
+        class="edit-notes flex-1 py-1 px-1.5 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-xs">
+      <button type="submit" class="py-1 px-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition-colors text-xs">Save</button>
+      <button type="button" onclick="cancelLogEntryEdit(this)" class="py-1 px-2 bg-slate-100 text-slate-600 font-bold rounded-lg hover:bg-slate-200 transition-colors text-xs">Cancel</button>
+    </form>
+  `;
+}
+
+function cancelLogEntryEdit(btn) {
+  const row = btn.closest("[data-entry-id]");
+  if (row) row.remove();
+}
+
+async function saveLogEntryEdit(challengeId, activityId, entryId, event) {
+  event.preventDefault();
+  const form = event.target;
+  const amount = parseFloat(form.querySelector(".edit-amount").value);
+  if (isNaN(amount)) return;
+
+  const timeInput = form.querySelector(".edit-time");
+  const notesInput = form.querySelector(".edit-notes");
+
+  const body = { amount };
+  if (timeInput && timeInput.value) body.timeAmount = parseFloat(timeInput.value);
+  if (notesInput && notesInput.value.trim()) body.notes = notesInput.value.trim();
+
+  const res = await apiFetch(`/api/challenges/${challengeId}/activities/${activityId}/log/${entryId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (res.ok) {
+    const data = await res.json();
+    if (data.surprise) {
+      showToast(data.surprise.title, data.surprise.description, "surprise");
+    }
+    if (currentChallengeId) showProgress(currentChallengeId);
+    loadAllData();
+  } else {
+    const data = await res.json().catch(() => ({}));
+    alert(data.error || "Failed to update entry");
+  }
 }
 
 async function renderAchievements(achievements) {

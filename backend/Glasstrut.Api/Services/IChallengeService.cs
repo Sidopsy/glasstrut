@@ -8,4 +8,5 @@ public interface IChallengeService
     Task<ChallengeDto> UpdateChallengeAsync(string userId, Guid challengeId, UpdateChallengeRequest request);
     Task<ChallengeDto> GetChallengeAsync(string userId, Guid challengeId);
     Task<List<ChallengeDto>> GetChallengesAsync(string userId, Guid? familyId);
+    Task DeleteChallengeAsync(string userId, Guid challengeId);
 }

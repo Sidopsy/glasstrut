@@ -77,5 +77,23 @@ public static class ChallengeEndpoints
                 return Results.Forbid();
             }
         });
+
+        group.MapDelete("/{challengeId:guid}", async (Guid challengeId, IChallengeService service, ClaimsPrincipal user) =>
+        {
+            var userId = user.FindFirstValue(ClaimTypes.NameIdentifier)!;
+            try
+            {
+                await service.DeleteChallengeAsync(userId, challengeId);
+                return Results.NoContent();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Results.Forbid();
+            }
+        });
     }
 }
