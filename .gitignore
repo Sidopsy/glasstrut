@@ -6,3 +6,11 @@ obj/
 *.db-wal
 appsettings.Production.json
 config.local.js
+
+# UX review docs
+UX-REVIEW.md
+UX-REVIEW-FINDINGS.md
+
+# Backend runtime logs
+backend/*.log
+backend/*.err
