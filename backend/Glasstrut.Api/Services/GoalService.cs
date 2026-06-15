@@ -119,6 +119,7 @@ public class GoalService : IGoalService
         {
             var goal = goalLink.Goal;
             var delta = request.Amount * activity.PointValue;
+            var isStreak = goal.Type == "Streak";
 
             var progress = await _db.GoalProgresses
                 .FirstOrDefaultAsync(p => p.ChallengeGoalId == goal.Id && p.UserId == userId);
@@ -126,14 +127,17 @@ public class GoalService : IGoalService
             bool justCompleted = false;
             if (progress == null)
             {
+                decimal newValue = isStreak ? balance.CurrentStreak
+                    : goal.IsPerEntry ? delta
+                    : delta;
                 progress = new GoalProgress
                 {
                     Id = Guid.NewGuid(),
                     ChallengeGoalId = goal.Id,
                     UserId = userId,
-                    CurrentValue = delta,
-                    IsCompleted = goal.TargetValue.HasValue && delta >= goal.TargetValue.Value,
-                    CompletedAt = goal.TargetValue.HasValue && delta >= goal.TargetValue.Value
+                    CurrentValue = newValue,
+                    IsCompleted = goal.TargetValue.HasValue && newValue >= goal.TargetValue.Value,
+                    CompletedAt = goal.TargetValue.HasValue && newValue >= goal.TargetValue.Value
                         ? DateTime.UtcNow : null,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow,
@@ -144,7 +148,19 @@ public class GoalService : IGoalService
             }
             else
             {
-                progress.CurrentValue += delta;
+                if (isStreak)
+                {
+                    progress.CurrentValue = balance.CurrentStreak;
+                }
+                else if (goal.IsPerEntry)
+                {
+                    if (delta > progress.CurrentValue)
+                        progress.CurrentValue = delta;
+                }
+                else
+                {
+                    progress.CurrentValue += delta;
+                }
                 progress.ProgressEntries.Add(entry);
                 if (goal.TargetValue.HasValue && progress.CurrentValue >= goal.TargetValue.Value && !progress.IsCompleted)
                 {
@@ -157,7 +173,7 @@ public class GoalService : IGoalService
 
             if (justCompleted)
             {
-                if (goal.Type == "Achievement")
+                if (goal.Type is "Achievement" or "Streak")
                     await AutoAwardAchievementAsync(userId, goal);
 
                 if (goal.IsHidden && surprise == null)
@@ -258,13 +274,30 @@ public class GoalService : IGoalService
             var oldDelta = entry.Amount * entry.Activity.PointValue;
             var newDelta = request.Amount * entry.Activity.PointValue;
             var deltaChange = newDelta - oldDelta;
+            var isStreak = goal.Type == "Streak";
 
             var progress = await _db.GoalProgresses
                 .FirstOrDefaultAsync(p => p.ChallengeGoalId == goal.Id && p.UserId == userId);
 
             if (progress != null)
             {
-                progress.CurrentValue += deltaChange;
+                if (isStreak)
+                {
+                    // Streak goals update at log time; edit doesn't recompute streak
+                }
+                else if (goal.IsPerEntry)
+                {
+                    var maxEntry = await _db.ProgressEntries
+                        .Include(e => e.Activity)
+                        .Where(e => e.Activity.GoalLinks.Any(gl => gl.ChallengeGoalId == goal.Id)
+                            && e.UserId == userId)
+                        .MaxAsync(e => (decimal?)(e.Amount * e.Activity.PointValue)) ?? 0;
+                    progress.CurrentValue = maxEntry;
+                }
+                else
+                {
+                    progress.CurrentValue += deltaChange;
+                }
                 progress.UpdatedAt = DateTime.UtcNow;
 
                 if (goal.TargetValue.HasValue)
@@ -277,7 +310,7 @@ public class GoalService : IGoalService
                         progress.IsCompleted = true;
                         progress.CompletedAt = DateTime.UtcNow;
 
-                        if (goal.Type == "Achievement")
+                        if (goal.Type is "Achievement" or "Streak")
                             await AutoAwardAchievementAsync(userId, goal);
 
                         if (goal.IsHidden && surprise == null)
@@ -351,14 +384,25 @@ public class GoalService : IGoalService
             .Select(p => p.ChallengeGoalId)
             .ToHashSet();
 
+        var currencyBalance = await _db.ChallengeCurrencyBalances
+            .FirstOrDefaultAsync(b => b.ChallengeId == challengeId && b.UserId == userId);
+        var currentStreak = currencyBalance?.CurrentStreak ?? 0;
+
         var progressDtos = challenge.Goals
             .Where(g => !g.IsHidden || completedHiddenGoalIds.Contains(g.Id))
             .Select(g =>
             {
                 var p = progresses.FirstOrDefault(pr => pr.ChallengeGoalId == g.Id);
-                return p != null ? MapProgressDto(p, g) : new GoalProgressDto(
+                if (p != null)
+                {
+                    if (g.Type == "Streak")
+                        p.CurrentValue = currentStreak;
+                    return MapProgressDto(p, g);
+                }
+                return new GoalProgressDto(
                     Guid.Empty, g.Id, g.Description, g.Type,
-                    g.TargetValue, g.Unit, 0, false, null);
+                    g.TargetValue, g.Unit,
+                    g.Type == "Streak" ? currentStreak : 0, false, null, g.IsPerEntry);
             }).ToList();
 
         var achievements = await _db.UserAchievements
@@ -379,9 +423,6 @@ public class GoalService : IGoalService
             );
         }).Where(a => !a.IsHidden || a.UnlockedAt != null)
           .ToList();
-
-        var currencyBalance = await _db.ChallengeCurrencyBalances
-            .FirstOrDefaultAsync(b => b.ChallengeId == challengeId && b.UserId == userId);
 
         return new ProgressAndAchievementsDto(
             progressDtos, achievementDtos,
@@ -442,17 +483,26 @@ public class GoalService : IGoalService
 
         var memberDtos = memberInfo.Select(mi =>
         {
+            var b = allBalances.FirstOrDefault(b => b.UserId == mi.UserId);
+            var memberStreak = b?.CurrentStreak ?? 0;
             var memberGoals = challenge.Goals
                 .Where(g => !g.IsHidden || completedHiddenGoalIds.Contains(g.Id))
                 .Select(g =>
                 {
                     var p = allProgress.FirstOrDefault(pr => pr.ChallengeGoalId == g.Id && pr.UserId == mi.UserId);
-                    return p != null ? MapProgressDto(p, g) : new GoalProgressDto(
+                    if (p != null)
+                    {
+                        if (g.Type == "Streak")
+                            p.CurrentValue = memberStreak;
+                        return MapProgressDto(p, g);
+                    }
+                    return new GoalProgressDto(
                         Guid.Empty, g.Id, g.Description, g.Type,
-                        g.TargetValue, g.Unit, 0, false, null);
+                        g.TargetValue, g.Unit,
+                        g.Type == "Streak" ? memberStreak : 0, false, null, g.IsPerEntry);
                 }).ToList();
 
-            var b = allBalances.FirstOrDefault(b => b.UserId == mi.UserId);
+
             return new MemberProgressDto(
                 mi.UserId, mi.Email, memberGoals,
                 b?.Balance ?? 0,
@@ -660,7 +710,8 @@ public class GoalService : IGoalService
         return new GoalProgressDto(
             p.Id, g.Id, g.Description, g.Type,
             g.TargetValue, g.Unit,
-            p.CurrentValue, p.IsCompleted, p.CompletedAt
+            p.CurrentValue, p.IsCompleted, p.CompletedAt,
+            g.IsPerEntry
         );
     }
 }

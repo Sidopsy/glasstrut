@@ -283,9 +283,10 @@ public class ChallengeService : IChallengeService
                 {
                     existing.Description = gd.Description;
                     existing.Type = gd.Type;
-                    existing.TargetValue = gd.Type == "Achievement" ? gd.TargetValue : null;
+                    existing.TargetValue = gd.Type is "Achievement" or "Streak" ? gd.TargetValue : null;
                     existing.Unit = gd.Unit;
                     existing.IsHidden = gd.IsHidden;
+                    existing.IsPerEntry = gd.IsPerEntry;
                 }
                 else
                 {
@@ -295,9 +296,10 @@ public class ChallengeService : IChallengeService
                         ChallengeId = challenge.Id,
                         Description = gd.Description,
                         Type = gd.Type,
-                        TargetValue = gd.Type == "Achievement" ? gd.TargetValue : null,
+                        TargetValue = gd.Type is "Achievement" or "Streak" ? gd.TargetValue : null,
                         Unit = gd.Unit,
                         IsHidden = gd.IsHidden,
+                        IsPerEntry = gd.IsPerEntry,
                         CreatedAt = DateTime.UtcNow,
                     });
                 }
@@ -360,7 +362,18 @@ public class ChallengeService : IChallengeService
             throw new UnauthorizedAccessException("This challenge does not belong to you.");
         }
 
-        return MapToDto(challenge);
+        var hiddenGoalIds = challenge.Goals.Where(g => g.IsHidden).Select(g => g.Id).ToHashSet();
+        HashSet<Guid> completedHidden = [];
+        if (hiddenGoalIds.Count > 0)
+        {
+            var completedIds = await _db.GoalProgresses
+                .Where(p => hiddenGoalIds.Contains(p.ChallengeGoalId) && p.UserId == userId && p.IsCompleted)
+                .Select(p => p.ChallengeGoalId)
+                .ToListAsync();
+            completedHidden = completedIds.ToHashSet();
+        }
+
+        return MapToDto(challenge, completedHidden);
     }
 
     public async Task<List<ChallengeDto>> GetChallengesAsync(string userId, Guid? familyId)
@@ -395,7 +408,30 @@ public class ChallengeService : IChallengeService
         }
 
         var challenges = await query.OrderByDescending(c => c.CreatedAt).ToListAsync();
-        return challenges.Select(MapToDto).ToList();
+
+        var allHiddenGoalIds = challenges
+            .SelectMany(c => c.Goals.Where(g => g.IsHidden).Select(g => g.Id))
+            .ToHashSet();
+        Dictionary<Guid, HashSet<Guid>> completedByChallenge = [];
+        if (allHiddenGoalIds.Count > 0)
+        {
+            var completedProgresses = await _db.GoalProgresses
+                .Where(p => allHiddenGoalIds.Contains(p.ChallengeGoalId) && p.UserId == userId && p.IsCompleted)
+                .ToListAsync();
+            foreach (var cp in completedProgresses)
+                completedByChallenge[cp.ChallengeGoalId] = [];
+            foreach (var cp in completedProgresses)
+                completedByChallenge[cp.ChallengeGoalId].Add(cp.ChallengeGoalId);
+        }
+
+        return challenges.Select(c =>
+        {
+            var hiddenIds = c.Goals.Where(g => g.IsHidden).Select(g => g.Id).ToHashSet();
+            var completed = hiddenIds
+                .Where(h => completedByChallenge.TryGetValue(h, out var set) && set.Contains(h))
+                .ToHashSet();
+            return MapToDto(c, completed);
+        }).ToList();
     }
 
     private static void AddChallengeActivities(Challenge challenge, List<CreateActivityDto>? activityDtos)
@@ -455,9 +491,10 @@ public class ChallengeService : IChallengeService
                     ChallengeId = challenge.Id,
                     Description = goalDto.Description,
                     Type = goalDto.Type,
-                    TargetValue = goalDto.Type == "Achievement" ? goalDto.TargetValue : null,
+                    TargetValue = goalDto.Type is "Achievement" or "Streak" ? goalDto.TargetValue : null,
                     Unit = goalDto.Unit,
                     IsHidden = goalDto.IsHidden,
+                    IsPerEntry = goalDto.IsPerEntry,
                     CreatedAt = DateTime.UtcNow,
                 };
 
@@ -488,17 +525,21 @@ public class ChallengeService : IChallengeService
         }
     }
 
-    private static ChallengeDto MapToDto(Challenge c)
+    private static ChallengeDto MapToDto(Challenge c, HashSet<Guid>? completedHiddenGoalIds = null)
     {
         return new ChallengeDto(
             c.Id, c.Title, c.Description, c.Type, c.FamilyId,
             c.StartDate, c.EndDate, c.CreatedAt, c.CurrencyName, c.CreatedById,
             c.Goals.Select(g => new ChallengeGoalDto(
-                g.Id, g.Description, g.Type, g.TargetValue, g.Unit, g.IsHidden
+                g.Id, g.Description, g.Type, g.TargetValue, g.Unit, g.IsHidden, g.IsPerEntry
             )).ToList(),
-            c.Prizes.Select(p => new ChallengePrizeDto(
-                p.Id, p.Description, p.Cost, p.HasQR, p.ChallengeGoalId
-            )).ToList(),
+            c.Prizes
+                .Where(p => p.ChallengeGoalId == null
+                    || !c.Goals.Any(g => g.Id == p.ChallengeGoalId && g.IsHidden)
+                    || (completedHiddenGoalIds?.Contains(p.ChallengeGoalId.Value) ?? false))
+                .Select(p => new ChallengePrizeDto(
+                    p.Id, p.Description, p.Cost, p.HasQR, p.ChallengeGoalId
+                )).ToList(),
             c.Targets.Select(t => t.UserId).ToList(),
             c.Activities.Select(a => new ChallengeActivityDto(
                 a.Id, a.Name, a.ActivityType, a.Unit, a.TimeUnit, a.PointValue,

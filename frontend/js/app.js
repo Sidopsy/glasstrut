@@ -789,14 +789,14 @@ function wizardGoTo(step) {
     }
   });
   
-  // Rebuild prize goal dropdowns when entering step 3
-  if (step === 3) {
+  // Rebuild prize goal dropdowns when entering step 4
+  if (step === 4) {
     refreshPrizeGoalDropdowns();
   }
 }
 
 function wizardNext() {
-  if (wizardCurrentStep < 3) wizardGoTo(wizardCurrentStep + 1);
+  if (wizardCurrentStep < 4) wizardGoTo(wizardCurrentStep + 1);
 }
 
 function wizardPrev() {
@@ -820,11 +820,16 @@ function toggleGoalFields(selectEl) {
   const type = selectEl.value;
   const container = selectEl.closest('.goal-field');
   const targetGroup = container.querySelector('.goal-target-group');
+  const perEntryGroup = container.querySelector('.goal-perentry-group');
   if (type === 'Collection') {
     targetGroup.classList.add('hidden');
     targetGroup.querySelectorAll('input').forEach(i => i.removeAttribute('required'));
+    if (perEntryGroup) perEntryGroup.classList.add('hidden');
   } else {
     targetGroup.classList.remove('hidden');
+    if (perEntryGroup) {
+      perEntryGroup.classList.toggle('hidden', type !== 'Achievement');
+    }
   }
 }
 
@@ -936,7 +941,7 @@ function addGoalField(goal) {
   if (goal && goal.id) div.dataset.editId = goal.id;
 
   const isHidden = goal && goal.isHidden;
-  const isCollection = goal && goal.type === 'Collection';
+  const hideTarget = goal && (goal.type === 'Collection');
 
   div.innerHTML = `
     <button type="button" onclick="(!this.closest('.goal-field').dataset.editId || confirm('Removing this goal will delete all past progress logs when saved. Are you sure?')) && this.closest('.goal-field').remove()" class="absolute top-2 right-2 text-slate-400 hover:text-red-500 text-lg leading-none">&times;</button>
@@ -946,9 +951,10 @@ function addGoalField(goal) {
       <select onchange="toggleGoalFields(this)" class="goal-type w-full py-2 px-2 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
         <option value="Achievement" ${(!goal || goal.type === "Achievement") ? "selected" : ""}>Achievement</option>
         <option value="Collection" ${(goal && goal.type === "Collection") ? "selected" : ""}>Collection</option>
+        <option value="Streak" ${(goal && goal.type === "Streak") ? "selected" : ""}>Streak</option>
       </select>
     </div>
-    <div class="goal-target-group grid grid-cols-2 gap-2 mb-2 ${isCollection ? 'hidden' : ''}">
+    <div class="goal-target-group grid grid-cols-2 gap-2 mb-2 ${hideTarget ? 'hidden' : ''}">
       <input type="number" inputmode="decimal" step="any" placeholder="Target" value="${goal && goal.targetValue != null ? goal.targetValue : ""}"
         class="goal-target w-full py-2 px-2 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
       <input type="text" placeholder="Unit" value="${goal && goal.unit ? escapeHtml(goal.unit) : ""}"
@@ -963,6 +969,10 @@ function addGoalField(goal) {
         <label class="flex items-center gap-2 text-sm text-slate-600">
           <input type="checkbox" class="goal-hidden" ${isHidden ? "checked" : ""}>
           Hidden goal — surprises user on completion
+        </label>
+        <label class="goal-perentry-group flex items-center gap-2 text-sm text-slate-600 mt-1 ${(goal && goal.type && goal.type !== 'Achievement') ? 'hidden' : ''}">
+          <input type="checkbox" class="goal-perentry" ${(goal && goal.isPerEntry) ? "checked" : ""}>
+          Per-entry — each log must meet target (no accumulation)
         </label>
       </div>
     </div>
@@ -1132,6 +1142,7 @@ async function submitChallenge(event) {
         targetValue: targetValue ? parseFloat(targetValue) : null,
         unit: unit || null,
         isHidden,
+        isPerEntry: g.querySelector(".goal-perentry")?.checked ?? false,
       };
       goals.push(gd);
     }
@@ -1454,11 +1465,15 @@ function makeChallengeActivityForms(challengeId, activities, goals) {
 
 function makeGoalCard(g, challengeId, memberId) {
   const pct = g.targetValue ? Math.round((g.currentValue / g.targetValue) * 100) : 0;
+  const badges = [];
+  badges.push(`<span class="text-xs font-medium text-slate-500 bg-slate-200 px-2 py-0.5 rounded-full">${escapeHtml(g.goalType)}</span>`);
+  if (g.isPerEntry) badges.push(`<span class="text-xs font-medium text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">Per-entry</span>`);
+  if (g.goalType === 'Streak') badges.push(`<span class="text-xs font-medium text-orange-600 bg-orange-100 px-2 py-0.5 rounded-full">🔥 Streak</span>`);
   return `
     <div class="bg-slate-50 rounded-xl p-3 mb-3">
       <div class="flex items-center justify-between mb-1">
         <strong class="text-sm text-slate-800">${escapeHtml(g.goalDescription)}</strong>
-        <span class="text-xs font-medium text-slate-500 bg-slate-200 px-2 py-0.5 rounded-full">${escapeHtml(g.goalType)}</span>
+        <div class="flex gap-1">${badges.join('')}</div>
       </div>
       <div class="text-sm text-slate-600">
         ${g.targetValue != null

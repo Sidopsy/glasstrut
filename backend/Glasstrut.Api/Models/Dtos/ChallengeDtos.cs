@@ -25,6 +25,7 @@ public record CreateGoalDto(
     decimal? TargetValue = null,
     string? Unit = null,
     bool IsHidden = false,
+    bool IsPerEntry = false,
     List<CreateActivityDto>? Activities = null
 );
 
@@ -56,6 +57,7 @@ public record UpdateGoalDto(
     decimal? TargetValue = null,
     string? Unit = null,
     bool IsHidden = false,
+    bool IsPerEntry = false,
     List<UpdateActivityDto>? Activities = null
 );
 
@@ -111,7 +113,8 @@ public record ChallengeGoalDto(
     string Type,
     decimal? TargetValue,
     string? Unit,
-    bool IsHidden
+    bool IsHidden,
+    bool IsPerEntry = false
 );
 
 public record ChallengePrizeDto(

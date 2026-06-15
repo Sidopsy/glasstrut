@@ -77,6 +77,10 @@ Phase 6–7 complete (Progress & Dashboard, QR Reward Redemption).
 Phase 8 UI redesign + challenge enhancements done.
 Phase 9 Username Auth complete.
 Phase 10 Currency Overhaul & Streak Counter complete.
+Phase 11 TimeUnit & Test Fixes complete.
+Phase 12 Chronicle Redemptions, Challenge Deletion & Log Editing complete.
+Phase 12b Multi-Goal Activities complete.
+Phase 12c Streak Goals, Per-Entry Goals & Hidden Prize Filtering complete.
 
 ### Phase 8 — UI Redesign & Challenge Enhancements (complete)
 - Tailwind CSS via CDN replaces most custom CSS
@@ -146,4 +150,14 @@ Phase 10 Currency Overhaul & Streak Counter complete.
 - Frontend: goal checkboxes in challenge-level activity forms, goal badges in progress views
 - Frontend: removed goal-level activities (all activities now challenge-level only)
 - Wizard now has 4 steps: Info → Goals → Activities → Prizes
+- Full test coverage: 73 tests pass
+
+### Phase 12c — Streak Goals, Per-Entry Goals & Hidden Prize Filtering (complete)
+- `ChallengeGoal.IsPerEntry` field — per-entry (max) vs accumulation (sum) progress tracking
+- `ChallengeGoal.Type` supports "Streak" — uses `ChallengeCurrencyBalance.CurrentStreak` as progress value
+- Streak goals auto-sync in progress views; per-entry uses `MAX(amount × pointValue)` across all entries
+- Edit activity entry recomputes max for per-entry goals
+- Prizes linked to hidden goals filtered from non-completing viewers in challenge list/detail endpoints
+- Frontend: Streak type in goal dropdown, IsPerEntry checkbox in advanced options, badges in progress cards
+- Migration: `AddIsPerEntryAndStreakGoal`
 - Full test coverage: 73 tests pass

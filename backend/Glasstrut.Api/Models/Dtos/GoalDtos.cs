@@ -27,7 +27,8 @@ public record GoalProgressDto(
     string? Unit,
     decimal CurrentValue,
     bool IsCompleted,
-    DateTime? CompletedAt
+    DateTime? CompletedAt,
+    bool IsPerEntry = false
 );
 
 public record AchievementDto(

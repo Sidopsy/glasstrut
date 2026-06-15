@@ -113,3 +113,13 @@
 - [x] Frontend: goal badges on activity log forms in progress views
 - [x] Frontend: removed goal-level activities (all activities now challenge-level)
 - [x] All 73 existing tests pass
+
+## Phase 12c — Streak Goals, Per-Entry Goals & Hidden Prize Filtering
+- [x] `ChallengeGoal.IsPerEntry` field — per-entry (max-based) vs accumulation (sum-based) progress
+- [x] `ChallengeGoal.Type` supports "Streak" — tracks current streak as progress value
+- [x] Streak goals: progress auto-syncs with `ChallengeCurrencyBalance.CurrentStreak` in progress views
+- [x] Per-entry: `CurrentValue = MAX(amount × pointValue)` across all entries; edit recomputes max
+- [x] Prizes linked to hidden goals are filtered from non-completing viewers in challenge list/detail
+- [x] GoalService: both `LogActivityAsync` and `UpdateActivityEntryAsync` handle IsPerEntry and Streak
+- [x] Frontend: Streak type in goal dropdown, IsPerEntry checkbox in advanced options, badges in progress cards
+- [x] All 73 existing tests pass
