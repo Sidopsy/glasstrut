@@ -550,9 +550,12 @@ function renderQuickLog() {
     if (bIdx !== -1) return 1;
     return 0;
   });
-  const top = sorted.slice(0, 5);
 
-  container.innerHTML = top.map(a => {
+  const showCount = 3;
+  const top = sorted.slice(0, showCount);
+  const rest = sorted.slice(showCount);
+
+  const makeForm = (a) => {
     const isDistTime = a.activityType === "DistanceAndTime";
     return `
       <form onsubmit="quickLogSubmit('${a.challengeId}', '${a.id}', event)" class="bg-white rounded-2xl p-3 shadow-sm border border-slate-100 flex flex-col gap-2">
@@ -574,7 +577,23 @@ function renderQuickLog() {
         </div>
       </form>
     `;
-  }).join("");
+  };
+
+  let html = top.map(makeForm).join("");
+
+  if (rest.length > 0) {
+    const hiddenId = "quick-log-more";
+    html += `
+      <button type="button" onclick="document.getElementById('${hiddenId}').classList.toggle('hidden');this.classList.toggle('hidden')"
+        class="w-full py-2 text-xs font-medium text-indigo-600 bg-slate-50 rounded-xl hover:bg-indigo-50 transition-colors border border-dashed border-slate-200">
+        + Show all ${allActivities.length} activities
+      </button>
+      <div id="${hiddenId}" class="hidden flex flex-col gap-2 max-h-80 overflow-y-auto pl-2 border-l-2 border-slate-100">
+        ${rest.map(makeForm).join("")}
+      </div>`;
+  }
+
+  container.innerHTML = html;
   section.classList.remove("hidden");
 }
 
@@ -650,12 +669,10 @@ function renderUpNext() {
           <h3 class="font-bold text-lg text-slate-700 leading-tight">${escapeHtml(c.title)}</h3>
           <p class="text-xs text-slate-500 mt-1">${summary}</p>
         </div>
-        ${currencyName ? `<div class="mt-2 flex items-center gap-2 text-sm font-semibold text-amber-600">
-          <span>💰 ${balance} ${escapeHtml(currencyName)}</span>
-          ${streak > 0 ? `<span>🔥 ${streak} day streak</span>` : ""}
-        </div>` : streak > 0 ? `<div class="mt-2 flex items-center gap-2 text-sm font-semibold text-amber-600">
+        <div class="mt-2 flex items-center gap-2 text-sm font-semibold text-amber-600 flex-wrap">
           <span>🔥 ${streak} day streak</span>
-        </div>` : ""}
+          ${currencyName ? `<span>💰 ${balance} ${escapeHtml(currencyName)}</span>` : ""}
+        </div>
       </div>
     `;
   }).join("");
@@ -1376,16 +1393,10 @@ async function renderSelfProgress(challenge, panelHtml, container) {
 
   let html = panelHtml;
 
-  if (data.currencyName) {
-    html += `<div class="flex items-center gap-3 mb-3 p-3 bg-amber-50 rounded-xl border border-amber-200">
-      <span class="font-bold text-amber-700">💰 Balance: ${data.currencyBalance} ${escapeHtml(data.currencyName)}</span>
-      <span class="text-sm text-amber-600">🔥 ${data.currentStreak} day streak</span>
-    </div>`;
-  } else if (data.currentStreak > 0) {
-    html += `<div class="flex items-center gap-3 mb-3 p-3 bg-amber-50 rounded-xl border border-amber-200">
-      <span class="font-bold text-amber-600">🔥 ${data.currentStreak} day streak</span>
-    </div>`;
-  }
+  html += `<div class="flex items-center gap-3 mb-3 p-3 bg-amber-50 rounded-xl border border-amber-200">
+    <span class="font-bold text-amber-600">🔥 ${data.currentStreak} day streak</span>
+    ${data.currencyName ? `<span class="font-bold text-amber-700">💰 Balance: ${data.currencyBalance} ${escapeHtml(data.currencyName)}</span>` : ""}
+  </div>`;
 
   for (const g of data.progress) {
     html += makeGoalCard(g, challenge.id);
@@ -1422,16 +1433,10 @@ async function renderFamilyProgress(challenge, panelHtml, container) {
     const isVisible = m === data.members[0];
       html += `<div class="member-progress" id="member-progress-${m.userId}" style="display:${isVisible ? 'block' : 'none'}">`;
       html += `<h4 class="font-bold text-indigo-600 mb-2">${escapeHtml(m.email || "Unknown")}</h4>`;
-    if (m.currencyName) {
-      html += `<div class="flex items-center gap-3 mb-2 p-2 bg-amber-50 rounded-lg border border-amber-200 text-sm">
-        <span class="font-bold text-amber-700">💰 ${m.currencyBalance} ${escapeHtml(m.currencyName)}</span>
-        <span class="text-amber-600">🔥 ${m.currentStreak} day streak</span>
-      </div>`;
-    } else if (m.currentStreak > 0) {
-      html += `<div class="flex items-center gap-3 mb-2 p-2 bg-amber-50 rounded-lg border border-amber-200 text-sm">
-        <span class="font-bold text-amber-600">🔥 ${m.currentStreak} day streak</span>
-      </div>`;
-    }
+    html += `<div class="flex items-center gap-3 mb-2 p-2 bg-amber-50 rounded-lg border border-amber-200 text-sm">
+      <span class="font-bold text-amber-600">🔥 ${m.currentStreak} day streak</span>
+      ${m.currencyName ? `<span class="font-bold text-amber-700">💰 ${m.currencyBalance} ${escapeHtml(m.currencyName)}</span>` : ""}
+    </div>`;
     for (const g of m.goals) {
       html += makeGoalCard(g, challenge.id, m.userId);
     }
