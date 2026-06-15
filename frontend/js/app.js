@@ -944,7 +944,7 @@ function addGoalField(goal) {
   const hideTarget = goal && (goal.type === 'Collection');
 
   div.innerHTML = `
-    <button type="button" onclick="(!this.closest('.goal-field').dataset.editId || confirm('Removing this goal will delete all past progress logs when saved. Are you sure?')) && this.closest('.goal-field').remove()" class="absolute top-2 right-2 text-slate-400 hover:text-red-500 text-lg leading-none">&times;</button>
+    <button type="button" onclick="removeGoalField(this)" class="absolute top-2 right-2 text-slate-400 hover:text-red-500 text-lg leading-none">&times;</button>
     <div class="grid grid-cols-2 gap-2 mb-2">
       <input type="text" placeholder="Goal description" value="${goal ? escapeHtml(goal.description) : ""}" required
         class="goal-desc w-full py-2 px-2 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
@@ -980,6 +980,14 @@ function addGoalField(goal) {
   container.appendChild(div);
 
   reindexGoals();
+  refreshActivityGoalCheckboxes();
+}
+
+function removeGoalField(btn) {
+  const field = btn.closest('.goal-field');
+  if (field.dataset.editId && !confirm('Removing this goal will delete all past progress logs when saved. Are you sure?')) return;
+  field.remove();
+  refreshActivityGoalCheckboxes();
 }
 
 function toggleGoalAdvanced(btn) {
@@ -991,6 +999,27 @@ function toggleGoalAdvanced(btn) {
 
 function reindexGoals() {
   // not strictly needed but keeps things tidy
+}
+
+function refreshActivityGoalCheckboxes() {
+  const goalFields = document.querySelectorAll(".goal-field");
+  if (goalFields.length === 0) return;
+  document.querySelectorAll(".challenge-activity-field").forEach(field => {
+    const checkedIndices = new Set();
+    field.querySelectorAll(".act-goal-cb:checked").forEach(cb => checkedIndices.add(parseInt(cb.value)));
+    let html = '<div class="col-span-3 flex flex-wrap gap-2 text-xs"><span class="text-slate-500 mr-1">Goals:</span>';
+    goalFields.forEach((g, i) => {
+      const desc = g.querySelector(".goal-desc")?.value || `Goal ${i + 1}`;
+      const checked = checkedIndices.has(i) ? "checked" : "";
+      html += `<label class="flex items-center gap-1 bg-white rounded-lg px-2 py-1 border border-slate-200">
+        <input type="checkbox" class="act-goal-cb" value="${i}" ${checked}>
+        <span>${escapeHtml(desc)}</span>
+      </label>`;
+    });
+    html += '</div>';
+    const existing = field.querySelector(".col-span-3.flex-wrap");
+    if (existing) existing.outerHTML = html;
+  });
 }
 
 function buildGoalCheckboxes(activity) {
