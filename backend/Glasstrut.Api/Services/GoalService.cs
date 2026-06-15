@@ -21,8 +21,9 @@ public class GoalService : IGoalService
 
         var activity = await _db.ChallengeActivities
             .Include(a => a.Challenge)
-            .Include(a => a.Goal)
-                .ThenInclude(g => g!.Prizes)
+            .Include(a => a.GoalLinks)
+                .ThenInclude(gl => gl.Goal)
+                    .ThenInclude(g => g!.Prizes)
             .FirstOrDefaultAsync(a => a.Id == activityId && a.ChallengeId == challengeId)
             ?? throw new InvalidOperationException("Activity not found.");
 
@@ -111,11 +112,12 @@ public class GoalService : IGoalService
             balance.UpdatedAt = DateTime.UtcNow;
         }
 
-        GoalProgressDto? progressDto = null;
+        List<GoalProgressDto> progressDtos = new();
+        SurpriseDto? surprise = null;
 
-        if (activity.Goal != null)
+        foreach (var goalLink in activity.GoalLinks)
         {
-            var goal = activity.Goal;
+            var goal = goalLink.Goal;
             var delta = request.Amount * activity.PointValue;
 
             var progress = await _db.GoalProgresses
@@ -158,34 +160,33 @@ public class GoalService : IGoalService
                 if (goal.Type == "Achievement")
                     await AutoAwardAchievementAsync(userId, goal);
 
-                if (goal.IsHidden)
+                if (goal.IsHidden && surprise == null)
                 {
                     var linkedPrize = goal.Prizes.FirstOrDefault();
                     if (linkedPrize != null)
                     {
                         await AutoClaimPrizeAsync(userId, challengeId, linkedPrize);
-                    }
-                    progressDto = MapProgressDto(progress, goal);
-                    await _db.SaveChangesAsync();
-                    SurpriseDto surprise = linkedPrize != null
-                        ? new SurpriseDto(
+                        surprise = new SurpriseDto(
                             $"Surprise! You earned {linkedPrize.Description}",
                             $"You completed the hidden goal '{goal.Description}' and earned a reward!"
-                        )
-                        : new SurpriseDto(
+                        );
+                    }
+                    else
+                    {
+                        surprise = new SurpriseDto(
                             $"Hidden goal completed: {goal.Description}",
                             "Great job!"
                         );
-                    return new LogActivityResponse(progressDto, surprise, currencyEarned);
+                    }
                 }
             }
 
-            progressDto = MapProgressDto(progress, goal);
+            progressDtos.Add(MapProgressDto(progress, goal));
         }
 
         await _db.SaveChangesAsync();
 
-        return new LogActivityResponse(progressDto, null, currencyEarned);
+        return new LogActivityResponse(progressDtos.LastOrDefault(), surprise, currencyEarned);
     }
 
     public async Task<LogActivityResponse> UpdateActivityEntryAsync(string userId, Guid challengeId, Guid activityId, Guid entryId, LogProgressRequest request)
@@ -195,8 +196,9 @@ public class GoalService : IGoalService
 
         var entry = await _db.ProgressEntries
             .Include(e => e.Activity)
-                .ThenInclude(a => a.Goal)
-                    .ThenInclude(g => g!.Prizes)
+                .ThenInclude(a => a.GoalLinks)
+                    .ThenInclude(gl => gl.Goal)
+                        .ThenInclude(g => g!.Prizes)
             .Include(e => e.Activity)
                 .ThenInclude(a => a.Challenge)
             .FirstOrDefaultAsync(e => e.Id == entryId && e.ChallengeActivityId == activityId)
@@ -248,13 +250,11 @@ public class GoalService : IGoalService
             }
         }
 
-        GoalProgressDto? progressDto = null;
-        string? surpriseTitle = null;
-        string? surpriseDescription = null;
+        SurpriseDto? surprise = null;
 
-        if (entry.Activity.Goal != null)
+        foreach (var goalLink in entry.Activity.GoalLinks)
         {
-            var goal = entry.Activity.Goal;
+            var goal = goalLink.Goal;
             var oldDelta = entry.Amount * entry.Activity.PointValue;
             var newDelta = request.Amount * entry.Activity.PointValue;
             var deltaChange = newDelta - oldDelta;
@@ -280,19 +280,23 @@ public class GoalService : IGoalService
                         if (goal.Type == "Achievement")
                             await AutoAwardAchievementAsync(userId, goal);
 
-                        if (goal.IsHidden)
+                        if (goal.IsHidden && surprise == null)
                         {
                             var linkedPrize = goal.Prizes.FirstOrDefault();
                             if (linkedPrize != null)
                             {
                                 await AutoClaimPrizeAsync(userId, challengeId, linkedPrize);
-                                surpriseTitle = $"Surprise! You earned {linkedPrize.Description}";
-                                surpriseDescription = $"You completed the hidden goal '{goal.Description}' and earned a reward!";
+                                surprise = new SurpriseDto(
+                                    $"Surprise! You earned {linkedPrize.Description}",
+                                    $"You completed the hidden goal '{goal.Description}' and earned a reward!"
+                                );
                             }
                             else
                             {
-                                surpriseTitle = $"Hidden goal completed: {goal.Description}";
-                                surpriseDescription = "Great job!";
+                                surprise = new SurpriseDto(
+                                    $"Hidden goal completed: {goal.Description}",
+                                    "Great job!"
+                                );
                             }
                         }
                     }
@@ -302,8 +306,6 @@ public class GoalService : IGoalService
                         progress.CompletedAt = null;
                     }
                 }
-
-                progressDto = MapProgressDto(progress, goal);
             }
         }
 
@@ -316,11 +318,7 @@ public class GoalService : IGoalService
 
         await _db.SaveChangesAsync();
 
-        SurpriseDto? surprise = surpriseTitle != null
-            ? new SurpriseDto(surpriseTitle, surpriseDescription ?? "")
-            : null;
-
-        return new LogActivityResponse(progressDto, surprise, newCurrency);
+        return new LogActivityResponse(null, surprise, newCurrency);
     }
 
     public async Task<ProgressAndAchievementsDto> GetChallengeProgressAsync(string userId, Guid challengeId)
@@ -501,7 +499,8 @@ public class GoalService : IGoalService
 
         var activityLog = await _db.ProgressEntries
             .Include(e => e.Activity)
-                .ThenInclude(a => a.Goal)
+                .ThenInclude(a => a.GoalLinks)
+                    .ThenInclude(gl => gl.Goal)
             .Include(e => e.User)
             .Where(e => e.Activity.ChallengeId == challengeId)
             .OrderByDescending(e => e.RecordedAt)
@@ -512,8 +511,8 @@ public class GoalService : IGoalService
             e.Id,
             e.User.Email ?? "unknown",
             e.Activity.Name,
-            e.Activity.Goal?.Description,
-            e.Activity.Goal?.Type,
+            e.Activity.GoalLinks.Select(gl => gl.Goal.Description).FirstOrDefault(),
+            e.Activity.GoalLinks.Select(gl => gl.Goal.Type).FirstOrDefault(),
             e.Amount,
             e.TimeAmount,
             e.Unit,

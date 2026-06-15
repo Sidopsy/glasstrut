@@ -5,7 +5,8 @@ public record CreateActivityDto(
     string Unit,
     decimal PointValue,
     string? TimeUnit = null,
-    string ActivityType = "Occurrence"
+    string ActivityType = "Occurrence",
+    List<int>? GoalIndices = null
 );
 
 public record UpdateActivityDto(
@@ -14,7 +15,8 @@ public record UpdateActivityDto(
     string Unit,
     decimal PointValue,
     string? TimeUnit = null,
-    string ActivityType = "Occurrence"
+    string ActivityType = "Occurrence",
+    List<Guid>? GoalIds = null
 );
 
 public record CreateGoalDto(
@@ -99,7 +101,8 @@ public record ChallengeActivityDto(
     string ActivityType,
     string Unit,
     string? TimeUnit,
-    decimal PointValue
+    decimal PointValue,
+    List<Guid>? GoalIds = null
 );
 
 public record ChallengeGoalDto(
@@ -108,8 +111,7 @@ public record ChallengeGoalDto(
     string Type,
     decimal? TargetValue,
     string? Unit,
-    bool IsHidden,
-    List<ChallengeActivityDto> Activities
+    bool IsHidden
 );
 
 public record ChallengePrizeDto(

@@ -513,19 +513,7 @@ function collectAllActivities() {
         }
       }
     }
-    if (c.goals) {
-      for (const g of c.goals) {
-        if (g.activities) {
-          for (const a of g.activities) {
-            const key = c.id + ":" + a.id;
-            if (!seen.has(key)) {
-              seen.add(key);
-              activities.push({ ...a, challengeId: c.id, challengeTitle: c.title, goalId: g.id });
-            }
-          }
-        }
-      }
-    }
+
   }
   return activities;
 }
@@ -947,10 +935,6 @@ function addGoalField(goal) {
   div.dataset.index = idx;
   if (goal && goal.id) div.dataset.editId = goal.id;
 
-  const activitiesHtml = goal && goal.activities && goal.activities.length > 0
-    ? goal.activities.map(a => makeActivityHtml(a)).join("")
-    : makeActivityHtml();
-
   const isHidden = goal && goal.isHidden;
   const isCollection = goal && goal.type === 'Collection';
 
@@ -970,7 +954,7 @@ function addGoalField(goal) {
       <input type="text" placeholder="Unit" value="${goal && goal.unit ? escapeHtml(goal.unit) : ""}"
         class="goal-unit w-full py-2 px-2 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
     </div>
-    <div class="mb-2">
+    <div>
       <button type="button" onclick="toggleGoalAdvanced(this)" class="text-xs font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1">
         <span>⚙️ Advanced</span>
         <span class="advanced-arrow text-xs">▸</span>
@@ -982,10 +966,6 @@ function addGoalField(goal) {
         </label>
       </div>
     </div>
-    <div class="activities-container">
-      ${activitiesHtml}
-    </div>
-    <button type="button" onclick="addActivityToGoal(this)" class="text-xs font-medium text-indigo-600 hover:text-indigo-800 mt-1">+ Add Activity</button>
   `;
   container.appendChild(div);
 
@@ -999,43 +979,26 @@ function toggleGoalAdvanced(btn) {
   arrow.textContent = advanced.classList.contains("hidden") ? "▸" : "▾";
 }
 
-function makeActivityHtml(activity) {
-  const actType = activity ? activity.activityType : "Occurrence";
-  const showUnit = actType !== "Occurrence";
-  const showTimeUnit = actType === "DistanceAndTime";
-  return `
-    <div class="activity-field p-2 mb-1.5 bg-white rounded-lg border border-slate-100">
-      ${activity && activity.id ? `<input type="hidden" class="act-id" value="${activity.id}">` : ""}
-      <div class="grid grid-cols-[1fr_auto_auto] gap-1.5 items-center mb-1.5">
-        <input type="text" placeholder="Name" value="${activity ? escapeHtml(activity.name) : ""}" required
-          class="act-name w-full py-1.5 px-2 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-xs">
-        <select onchange="toggleActivityFields(this)" class="act-type py-1.5 px-1 bg-white rounded-lg border border-slate-200 text-xs">
-          <option value="Occurrence" ${actType === "Occurrence" ? "selected" : ""}>Occurrence</option>
-          <option value="Distance" ${actType === "Distance" ? "selected" : ""}>Distance</option>
-          <option value="Time" ${actType === "Time" ? "selected" : ""}>Time</option>
-          <option value="DistanceAndTime" ${actType === "DistanceAndTime" ? "selected" : ""}>Dist+Time</option>
-        </select>
-        <button type="button" onclick="this.closest('.activity-field').remove()" class="text-red-400 hover:text-red-600 text-sm leading-none">&times;</button>
-      </div>
-      <div class="grid grid-cols-3 gap-1.5 items-center">
-        <input type="text" placeholder="Unit" value="${activity ? escapeHtml(activity.unit) : ""}" 
-          class="act-unit w-full py-1.5 px-1 bg-white rounded-lg border border-slate-200 text-xs ${showUnit ? '' : 'hidden'}">
-        <input type="text" placeholder="Time Unit (min)" value="${activity && activity.timeUnit ? escapeHtml(activity.timeUnit) : ""}" 
-          class="act-timeunit w-full py-1.5 px-1 bg-white rounded-lg border border-slate-200 text-xs ${showTimeUnit ? '' : 'hidden'}">
-        <input type="number" inputmode="decimal" step="any" placeholder="Pts" value="${activity ? activity.pointValue : "1"}" required
-          class="act-points w-full py-1.5 px-1 bg-white rounded-lg border border-slate-200 text-xs">
-      </div>
-    </div>
-  `;
-}
-
-function addActivityToGoal(btn) {
-  const container = btn.closest(".goal-field").querySelector(".activities-container");
-  container.insertAdjacentHTML("beforeend", makeActivityHtml());
-}
-
 function reindexGoals() {
   // not strictly needed but keeps things tidy
+}
+
+function buildGoalCheckboxes(activity) {
+  const goalFields = document.querySelectorAll(".goal-field");
+  if (goalFields.length === 0) return "";
+  let html = '<div class="col-span-3 flex flex-wrap gap-2 text-xs"><span class="text-slate-500 mr-1">Goals:</span>';
+  goalFields.forEach((g, i) => {
+    const desc = g.querySelector(".goal-desc")?.value || `Goal ${i + 1}`;
+    const editId = g.dataset.editId;
+    const checked = activity && activity.goalIds && editId && activity.goalIds.includes(editId)
+      ? "checked" : "";
+    html += `<label class="flex items-center gap-1 bg-white rounded-lg px-2 py-1 border border-slate-200">
+      <input type="checkbox" class="act-goal-cb" value="${i}" ${checked}>
+      <span>${escapeHtml(desc)}</span>
+    </label>`;
+  });
+  html += '</div>';
+  return html;
 }
 
 function addChallengeActivityField(activity) {
@@ -1067,6 +1030,7 @@ function addChallengeActivityField(activity) {
       <input type="number" inputmode="decimal" step="any" placeholder="Pts" value="${activity ? activity.pointValue : "1"}" required
         class="act-points w-full py-1.5 px-1 bg-white rounded-lg border border-slate-200 text-xs">
     </div>
+    ${buildGoalCheckboxes(activity)}
   `;
   container.appendChild(div);
 }
@@ -1160,20 +1124,6 @@ async function submitChallenge(event) {
     const targetValue = g.querySelector(".goal-target").value;
     const unit = g.querySelector(".goal-unit").value;
     const isHidden = g.querySelector(".goal-hidden").checked;
-    const activities = [];
-    g.querySelectorAll(".activity-field").forEach(a => {
-      const actIdInput = a.querySelector(".act-id");
-      const name = a.querySelector(".act-name").value;
-      const activityType = a.querySelector(".act-type").value;
-      const actUnit = a.querySelector(".act-unit").value;
-      const actTimeUnit = a.querySelector(".act-timeunit").value;
-      const pointValue = a.querySelector(".act-points").value;
-      if (name && pointValue) {
-        const act = { name, activityType, unit: actUnit || "times", timeUnit: actTimeUnit || null, pointValue: parseFloat(pointValue) };
-        if (actIdInput && actIdInput.value) act.id = actIdInput.value;
-        activities.push(act);
-      }
-    });
     if (description) {
       const gd = {
         id: goalEditId || undefined,
@@ -1182,7 +1132,6 @@ async function submitChallenge(event) {
         targetValue: targetValue ? parseFloat(targetValue) : null,
         unit: unit || null,
         isHidden,
-        activities: activities.length > 0 ? activities : null,
       };
       goals.push(gd);
     }
@@ -1211,6 +1160,7 @@ async function submitChallenge(event) {
     }
   });
 
+  const isEdit = !!editId;
   const challengeActivities = [];
   document.querySelectorAll("#challenge-activities-container .challenge-activity-field").forEach(a => {
     const actIdInput = a.querySelector(".act-id");
@@ -1222,6 +1172,18 @@ async function submitChallenge(event) {
     if (name && pointValue) {
       const act = { name, activityType, unit: actUnit || "times", timeUnit: actTimeUnit || null, pointValue: parseFloat(pointValue) };
       if (actIdInput && actIdInput.value) act.id = actIdInput.value;
+      // Collect goal indices from checkboxes
+      const cbs = a.querySelectorAll(".act-goal-cb:checked");
+      if (isEdit) {
+        // For update, map indices to goal GUIDs
+        act.goalIds = Array.from(cbs).map(cb => {
+          const goalIdx = parseInt(cb.value);
+          return goals[goalIdx]?.id || null;
+        }).filter(Boolean);
+      } else {
+        // For create, pass goal indices
+        act.goalIndices = Array.from(cbs).map(cb => parseInt(cb.value));
+      }
       challengeActivities.push(act);
     }
   });
@@ -1233,8 +1195,8 @@ async function submitChallenge(event) {
   };
   if (currencyName) body.currencyName = currencyName;
 
-  const method = editId ? "PUT" : "POST";
-  const url = editId ? `/api/challenges/${editId}` : "/api/challenges";
+  const method = isEdit ? "PUT" : "POST";
+  const url = isEdit ? `/api/challenges/${editId}` : "/api/challenges";
 
   const res = await apiFetch(url, {
     method,
@@ -1389,10 +1351,9 @@ async function renderSelfProgress(challenge, panelHtml, container) {
     html += makeGoalCard(g, challenge.id);
   }
 
-  // Challenge-level activities (not tied to a goal)
   if (challenge.activities && challenge.activities.length > 0) {
     html += `<div class="mt-3">
-      <div id="challenge-activities-log">${makeChallengeActivityForms(challenge.id, challenge.activities)}</div>
+      <div id="challenge-activities-log">${makeChallengeActivityForms(challenge.id, challenge.activities, challenge.goals)}</div>
     </div>`;
   }
 
@@ -1401,7 +1362,6 @@ async function renderSelfProgress(challenge, panelHtml, container) {
   html += await renderActivityLog(challenge.id);
   html += `</div>`;
   container.innerHTML = html;
-  renderGoalActions(challenge);
 }
 
 async function renderFamilyProgress(challenge, panelHtml, container) {
@@ -1439,10 +1399,9 @@ async function renderFamilyProgress(challenge, panelHtml, container) {
   }
   html += `</div>`;
 
-  // Challenge-level activities (not tied to a goal)
   if (challenge.activities && challenge.activities.length > 0) {
     html += `<div class="mt-3">
-      <div id="challenge-activities-log">${makeChallengeActivityForms(challenge.id, challenge.activities)}</div>
+      <div id="challenge-activities-log">${makeChallengeActivityForms(challenge.id, challenge.activities, challenge.goals)}</div>
     </div>`;
   }
 
@@ -1455,16 +1414,24 @@ async function renderFamilyProgress(challenge, panelHtml, container) {
   const firstMember = data.members[0];
   if (firstMember) {
     currentMemberId = firstMember.userId;
-    renderGoalActions(challenge);
   }
 }
 
-function makeChallengeActivityForms(challengeId, activities) {
+function makeChallengeActivityForms(challengeId, activities, goals) {
+  const goalMap = {};
+  if (goals) goals.forEach(g => { goalMap[g.id] = g; });
   return activities.map(a => {
     const isDistTime = a.activityType === "DistanceAndTime";
+    const goalBadges = a.goalIds && a.goalIds.length > 0
+      ? `<div class="flex flex-wrap gap-1 mb-1">${a.goalIds.map(gid => {
+          const g = goalMap[gid];
+          return g ? `<span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">${escapeHtml(g.description)}</span>` : "";
+        }).join("")}</div>`
+      : '<span class="text-xs text-slate-400">No goal linked</span>';
     return `
       <form onsubmit="logActivity('${challengeId}', '${a.id}', event)" class="flex flex-col gap-2 mt-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
         <span class="text-sm font-semibold text-slate-700">${escapeHtml(a.name)} <span class="text-xs font-normal text-slate-500">(${a.pointValue} pts/${escapeHtml(a.unit)})</span></span>
+        ${goalBadges}
         ${isDistTime ? `
           <div class="grid grid-cols-2 gap-2">
             <input type="number" inputmode="decimal" step="any" placeholder="Distance (${escapeHtml(a.unit)})" required
@@ -1485,36 +1452,6 @@ function makeChallengeActivityForms(challengeId, activities) {
   }).join("");
 }
 
-function renderGoalActions(challenge) {
-  for (const goal of challenge.goals) {
-    const actionsDiv = document.getElementById("goal-actions-" + goal.id);
-    if (!actionsDiv || !goal.activities || goal.activities.length === 0) continue;
-    actionsDiv.innerHTML = goal.activities.map(a => {
-      const isDistTime = a.activityType === "DistanceAndTime";
-      return `
-        <form onsubmit="logActivity('${challenge.id}', '${a.id}', event)" class="flex flex-col gap-2 mt-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
-          <span class="text-sm font-semibold text-slate-700">${escapeHtml(a.name)} <span class="text-xs font-normal text-slate-500">(${a.pointValue} pts/${escapeHtml(a.unit)})</span></span>
-          ${isDistTime ? `
-            <div class="grid grid-cols-2 gap-2">
-              <input type="number" inputmode="decimal" step="any" placeholder="Distance (${escapeHtml(a.unit)})" required
-                class="dist-input w-full py-2 px-3 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
-              <input type="number" inputmode="decimal" step="any" placeholder="Time (${a.timeUnit ? escapeHtml(a.timeUnit) : 'min'})" required
-                class="time-input w-full py-2 px-3 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
-            </div>
-          ` : `
-            <input type="number" inputmode="decimal" step="any" placeholder="Amount (${escapeHtml(a.unit)})" required
-              class="amount-input w-full py-2 px-3 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
-          `}
-          <div class="flex gap-2">
-            <input type="text" placeholder="Notes (optional)" class="notes-input flex-1 py-2 px-3 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
-            <button type="submit" class="py-2 px-5 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition-colors text-sm whitespace-nowrap shadow-sm">Log Activity</button>
-          </div>
-        </form>
-      `;
-    }).join("");
-  }
-}
-
 function makeGoalCard(g, challengeId, memberId) {
   const pct = g.targetValue ? Math.round((g.currentValue / g.targetValue) * 100) : 0;
   return `
@@ -1530,7 +1467,6 @@ function makeGoalCard(g, challengeId, memberId) {
       </div>
       ${g.isCompleted ? '<div class="text-sm font-bold text-green-600 mt-1">✅ Complete!</div>' : ""}
       ${g.targetValue ? `<div class="goal-bar mt-2"><div class="goal-bar-fill" style="width:${Math.min(pct, 100)}%"></div></div>` : ""}
-      ${!g.isCompleted ? `<div class="goal-actions mt-2" id="goal-actions-${g.goalId}"><em class="text-xs text-slate-400">Loading activities...</em></div>` : ""}
     </div>
   `;
 }

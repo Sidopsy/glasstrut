@@ -19,6 +19,7 @@ public class AppDbContext : IdentityDbContext<User>
     public DbSet<UserAchievement> UserAchievements => Set<UserAchievement>();
     public DbSet<PrizeClaim> PrizeClaims => Set<PrizeClaim>();
     public DbSet<ChallengeCurrencyBalance> ChallengeCurrencyBalances => Set<ChallengeCurrencyBalance>();
+    public DbSet<ChallengeActivityGoal> ChallengeActivityGoals => Set<ChallengeActivityGoal>();
 
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
@@ -79,8 +80,17 @@ public class AppDbContext : IdentityDbContext<User>
                   .WithMany(c => c.Activities)
                   .HasForeignKey(e => e.ChallengeId)
                   .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<ChallengeActivityGoal>(entity =>
+        {
+            entity.HasKey(e => new { e.ChallengeActivityId, e.ChallengeGoalId });
+            entity.HasOne(e => e.Activity)
+                  .WithMany(a => a.GoalLinks)
+                  .HasForeignKey(e => e.ChallengeActivityId)
+                  .OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(e => e.Goal)
-                  .WithMany(g => g.Activities)
+                  .WithMany(g => g.ActivityLinks)
                   .HasForeignKey(e => e.ChallengeGoalId)
                   .OnDelete(DeleteBehavior.Cascade);
         });

@@ -42,16 +42,16 @@ public class GoalEndpointTests : IClassFixture<CustomWebApplicationFactory>
                     description = "Run 100km",
                     type = "Achievement",
                     targetValue = 100m,
-                    unit = "km",
-                    activities = new[] {
-                        new { name = "Running", unit = "km", pointValue = 1m }
-                    }
+                    unit = "km"
                 }
+            },
+            activities = new[] {
+                new { name = "Running", unit = "km", pointValue = 1m, goalIndices = new[] { 0 } }
             }
         };
         var createResponse = await _client.PostAsJsonAsync("/api/challenges", body);
         var challenge = await createResponse.Content.ReadFromJsonAsync<ChallengeResponse>();
-        var activityId = challenge!.Goals[0].Activities[0].Id;
+        var activityId = challenge!.Activities[0].Id;
 
         // Log 50km — pointValue=1, so delta = 50*1 = 50
         var logResponse = await _client.PostAsJsonAsync(
@@ -91,20 +91,19 @@ public class GoalEndpointTests : IClassFixture<CustomWebApplicationFactory>
                     description = "Bronze",
                     type = "Achievement",
                     targetValue = 100m,
-                    unit = "km",
-                    activities = new[] {
-                        new { name = "Running", unit = "km", pointValue = 1m }
-                    }
+                    unit = "km"
                 },
                 new {
                     description = "Silver",
                     type = "Achievement",
                     targetValue = 150m,
-                    unit = "km",
-                    activities = new[] {
-                        new { name = "Running", unit = "km", pointValue = 1m }
-                    }
+                    unit = "km"
                 },
+            },
+            activities = new[]
+            {
+                new { name = "Running", unit = "km", pointValue = 1m, goalIndices = new[] { 0 } },
+                new { name = "Running", unit = "km", pointValue = 1m, goalIndices = new[] { 1 } }
             }
         };
         var createResponse = await _client.PostAsJsonAsync("/api/challenges", body);
@@ -138,16 +137,16 @@ public class GoalEndpointTests : IClassFixture<CustomWebApplicationFactory>
                     description = "Read 10 books",
                     type = "Achievement",
                     targetValue = 10m,
-                    unit = "books",
-                    activities = new[] {
-                        new { name = "Reading", unit = "books", pointValue = 1m }
-                    }
+                    unit = "books"
                 }
+            },
+            activities = new[] {
+                new { name = "Reading", unit = "books", pointValue = 1m, goalIndices = new[] { 0 } }
             }
         };
         var createResponse = await _client.PostAsJsonAsync("/api/challenges", body);
         var challenge = await createResponse.Content.ReadFromJsonAsync<ChallengeResponse>();
-        var activityId = challenge!.Goals[0].Activities[0].Id;
+        var activityId = challenge!.Activities[0].Id;
 
         await _client.PostAsJsonAsync(
             $"/api/challenges/{challenge.Id}/activities/{activityId}/log",
@@ -187,9 +186,9 @@ public class GoalEndpointTests : IClassFixture<CustomWebApplicationFactory>
     private record ActivityResponse(Guid Id, string Name, string Unit, decimal PointValue);
     private record ChallengeResponse(Guid Id, string Title, string Description, string Type, Guid? FamilyId,
         DateTime? StartDate, DateTime? EndDate, DateTime CreatedAt, string? CurrencyName,
-        List<GoalResponse> Goals, List<PrizeResponse> Prizes, List<string> TargetUserIds);
-    private record GoalResponse(Guid Id, string Description, string Type, decimal? TargetValue, string? Unit,
-        List<ActivityResponse> Activities);
+        List<GoalResponse> Goals, List<PrizeResponse> Prizes, List<string> TargetUserIds,
+        List<ActivityResponse>? Activities);
+    private record GoalResponse(Guid Id, string Description, string Type, decimal? TargetValue, string? Unit);
     private record PrizeResponse(Guid Id, string Description, decimal? Cost);
     private record GoalProgressResponse(Guid Id, Guid GoalId, string GoalDescription, string GoalType,
         decimal? TargetValue, string? Unit, decimal CurrentValue, bool IsCompleted, DateTime? CompletedAt);

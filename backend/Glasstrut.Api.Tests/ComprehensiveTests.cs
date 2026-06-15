@@ -250,12 +250,12 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
                 new
                 {
                     description = "Earn Stars",
-                    type = "Currency",
-                    activities = new[]
-                    {
-                        new { name = "Clean", unit = "times", pointValue = 5m, activityType = "Occurrence" }
-                    }
+                    type = "Currency"
                 }
+            },
+            activities = new[]
+            {
+                new { name = "Clean", unit = "times", pointValue = 5m, activityType = "Occurrence", goalIndices = new[] { 0 } }
             },
             prizes = new[]
             {
@@ -268,7 +268,7 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
         var challenge = await resp.Content.ReadFromJsonAsync<ChallengeResponse>();
         Assert.Equal("Stars", challenge!.CurrencyName);
         Assert.Equal("Currency", challenge.Goals[0].Type);
-        Assert.Equal(5, challenge.Goals[0].Activities[0].PointValue);
+        Assert.Equal(5, challenge.Activities[0].PointValue);
         Assert.Single(challenge.Prizes);
         Assert.Equal(10, challenge.Prizes[0].Cost);
     }
@@ -292,8 +292,7 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
                     type = "Achievement",
                     targetValue = 10m,
                     unit = "tasks",
-                    isHidden = false,
-                    activities = new[] { new { name = "Task", unit = "tasks", pointValue = 1m, activityType = "Occurrence" } }
+                    isHidden = false
                 },
                 new
                 {
@@ -301,9 +300,13 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
                     type = "Achievement",
                     targetValue = 5m,
                     unit = "tasks",
-                    isHidden = true,
-                    activities = new[] { new { name = "Secret", unit = "tasks", pointValue = 1m, activityType = "Occurrence" } }
+                    isHidden = true
                 }
+            },
+            activities = new[]
+            {
+                new { name = "Task", unit = "tasks", pointValue = 1m, activityType = "Occurrence", goalIndices = new[] { 0 } },
+                new { name = "Secret", unit = "tasks", pointValue = 1m, activityType = "Occurrence", goalIndices = new[] { 1 } }
             },
             prizes = new[]
             {
@@ -364,15 +367,16 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
                 type = g.Type,
                 targetValue = g.TargetValue,
                 unit = g.Unit,
-                isHidden = false,
-                activities = g.Activities.Select(a => new
-                {
-                    id = a.Id,
-                    name = a.Name,
-                    unit = a.Unit,
-                    pointValue = a.PointValue,
-                    activityType = "Occurrence"
-                }).ToList()
+                isHidden = false
+            }).ToList(),
+            activities = c.Activities?.Select(a => new
+            {
+                id = a.Id,
+                name = a.Name,
+                unit = a.Unit,
+                pointValue = a.PointValue,
+                activityType = "Occurrence",
+                goalIndices = new[] { 0 }
             }).ToList(),
             prizes = c.Prizes.Select(p => new { id = p.Id, description = p.Description, cost = p.Cost, hasQR = true, challengeGoalId = (Guid?)null }).ToList(),
             currencyName = (string?)null
@@ -394,7 +398,7 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
 
         var t2 = await RegisterAndGetTokenAsync();
         SetAuth(t2);
-        var updateBody = new { title = "Hacked", description = "", startDate = (DateTime?)null, endDate = (DateTime?)null, goals = new[] { new { id = (Guid?)null, description = "x", type = "Achievement", targetValue = (decimal?)null, unit = (string?)null, isHidden = false, activities = new[] { new { id = (Guid?)null, name = "x", unit = "x", pointValue = 1m, activityType = "Occurrence" } } } }, prizes = Array.Empty<object>(), currencyName = (string?)null };
+        var updateBody = new { title = "Hacked", description = "", startDate = (DateTime?)null, endDate = (DateTime?)null, goals = new[] { new { id = (Guid?)null, description = "x", type = "Achievement", targetValue = (decimal?)null, unit = (string?)null, isHidden = false } }, activities = new[] { new { id = (Guid?)null, name = "x", unit = "x", pointValue = 1m, activityType = "Occurrence", goalIndices = new[] { 0 } } }, prizes = Array.Empty<object>(), currencyName = (string?)null };
         var resp = await _client.PutAsJsonAsync($"/api/challenges/{c.Id}", updateBody);
         Assert.Equal(System.Net.HttpStatusCode.Forbidden, resp.StatusCode);
     }
@@ -408,7 +412,7 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
         SetAuth(token);
         var c = await CreateSimpleChallengeAsync("Run", "SelfOnly");
 
-        var aId = c.Goals[0].Activities[0].Id;
+        var aId = c.Activities[0].Id;
         var logResp = await _client.PostAsJsonAsync($"/api/challenges/{c.Id}/activities/{aId}/log", new { amount = 50m });
         logResp.EnsureSuccessStatusCode();
         var result = await logResp.Content.ReadFromJsonAsync<LogActivityResponse>();
@@ -441,15 +445,18 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
                     description = "Run with time",
                     type = "Achievement",
                     targetValue = 100m,
-                    unit = "km",
-                    activities = new[] { new { name = "Running", unit = "km", pointValue = 1m, activityType = "DistanceAndTime" } }
+                    unit = "km"
                 }
+            },
+            activities = new[]
+            {
+                new { name = "Running", unit = "km", pointValue = 1m, activityType = "DistanceAndTime", goalIndices = new[] { 0 } }
             }
         };
         var createResp = await _client.PostAsJsonAsync("/api/challenges", body);
         var c = await createResp.Content.ReadFromJsonAsync<ChallengeResponse>();
 
-        var aId = c!.Goals[0].Activities[0].Id;
+        var aId = c!.Activities[0].Id;
         var logResp = await _client.PostAsJsonAsync($"/api/challenges/{c.Id}/activities/{aId}/log", new { amount = 10m, timeAmount = 30m });
         logResp.EnsureSuccessStatusCode();
         var result = await logResp.Content.ReadFromJsonAsync<LogActivityResponse>();
@@ -463,7 +470,7 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
         SetAuth(token);
         var c = await CreateSimpleChallengeAsync("Notes", "SelfOnly");
 
-        var aId = c.Goals[0].Activities[0].Id;
+        var aId = c.Activities[0].Id;
         var logResp = await _client.PostAsJsonAsync($"/api/challenges/{c.Id}/activities/{aId}/log", new { amount = 10m, notes = "Great session!" });
         logResp.EnsureSuccessStatusCode();
 
@@ -491,14 +498,17 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
                     description = "Read 10 books",
                     type = "Achievement",
                     targetValue = 10m,
-                    unit = "books",
-                    activities = new[] { new { name = "Reading", unit = "books", pointValue = 1m, activityType = "Occurrence" } }
+                    unit = "books"
                 }
+            },
+            activities = new[]
+            {
+                new { name = "Reading", unit = "books", pointValue = 1m, activityType = "Occurrence", goalIndices = new[] { 0 } }
             }
         };
         var createResp = await _client.PostAsJsonAsync("/api/challenges", body);
         var c = await createResp.Content.ReadFromJsonAsync<ChallengeResponse>();
-        var aId = c!.Goals[0].Activities[0].Id;
+        var aId = c!.Activities[0].Id;
 
         await _client.PostAsJsonAsync($"/api/challenges/{c.Id}/activities/{aId}/log", new { amount = 10m });
 
@@ -527,9 +537,12 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
                     type = "Achievement",
                     targetValue = 5m,
                     unit = "tasks",
-                    isHidden = true,
-                    activities = new[] { new { name = "Secret", unit = "tasks", pointValue = 1m, activityType = "Occurrence" } }
+                    isHidden = true
                 }
+            },
+            activities = new[]
+            {
+                new { name = "Secret", unit = "tasks", pointValue = 1m, activityType = "Occurrence", goalIndices = new[] { 0 } }
             },
             prizes = new[]
             {
@@ -539,7 +552,7 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
 
         var createResp = await _client.PostAsJsonAsync("/api/challenges", body);
         var c = await createResp.Content.ReadFromJsonAsync<ChallengeResponse>();
-        var aId = c!.Goals[0].Activities[0].Id;
+        var aId = c!.Activities[0].Id;
 
         // Log partial
         var log1 = await _client.PostAsJsonAsync($"/api/challenges/{c.Id}/activities/{aId}/log", new { amount = 3m });
@@ -572,8 +585,7 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
                     type = "Achievement",
                     targetValue = 10m,
                     unit = "x",
-                    isHidden = false,
-                    activities = new[] { new { name = "Visible", unit = "x", pointValue = 1m, activityType = "Occurrence" } }
+                    isHidden = false
                 },
                 new
                 {
@@ -581,9 +593,13 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
                     type = "Achievement",
                     targetValue = 5m,
                     unit = "x",
-                    isHidden = true,
-                    activities = new[] { new { name = "Secret", unit = "x", pointValue = 1m, activityType = "Occurrence" } }
+                    isHidden = true
                 }
+            },
+            activities = new[]
+            {
+                new { name = "Visible", unit = "x", pointValue = 1m, activityType = "Occurrence", goalIndices = new[] { 0 } },
+                new { name = "Secret", unit = "x", pointValue = 1m, activityType = "Occurrence", goalIndices = new[] { 1 } }
             }
         };
 
@@ -597,7 +613,7 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
         Assert.Equal("Visible", prog.Progress[0].GoalDescription);
 
         // Complete hidden goal
-        var hId = c.Goals[1].Activities[0].Id;
+        var hId = c.Activities[1].Id;
         await _client.PostAsJsonAsync($"/api/challenges/{c.Id}/activities/{hId}/log", new { amount = 5m });
 
         // Now progress should show both
@@ -627,7 +643,7 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
         SetAuth(token);
         var c = await CreateSimpleChallengeAsync("LogTest", "SelfOnly");
 
-        var aId = c.Goals[0].Activities[0].Id;
+        var aId = c.Activities[0].Id;
         await _client.PostAsJsonAsync($"/api/challenges/{c.Id}/activities/{aId}/log", new { amount = 10m });
         await _client.PostAsJsonAsync($"/api/challenges/{c.Id}/activities/{aId}/log", new { amount = 20m });
 
@@ -650,7 +666,7 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
 
         SetAuth(t1);
         var c = await CreateFamilyChallengeAsync("Family Prog", family.Id);
-        var aId = c.Goals[0].Activities[0].Id;
+        var aId = c.Activities[0].Id;
         await _client.PostAsJsonAsync($"/api/challenges/{c.Id}/activities/{aId}/log", new { amount = 5m });
 
         var progResp = await _client.GetAsync($"/api/challenges/{c.Id}/progress/members");
@@ -680,9 +696,12 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
                     description = "Earn Coins",
                     type = "Achievement",
                     targetValue = 100m,
-                    unit = "tasks",
-                    activities = new[] { new { name = "Task", unit = "tasks", pointValue = 5m, activityType = "Occurrence" } }
+                    unit = "tasks"
                 }
+            },
+            activities = new[]
+            {
+                new { name = "Task", unit = "tasks", pointValue = 5m, activityType = "Occurrence", goalIndices = new[] { 0 } }
             },
             prizes = new[] { new { description = "Reward", cost = (decimal?)null, hasQR = false, challengeGoalId = (Guid?)null } }
         };
@@ -690,7 +709,7 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
         var createResp = await _client.PostAsJsonAsync("/api/challenges", body);
         var c = await createResp.Content.ReadFromJsonAsync<ChallengeResponse>();
 
-        var logResp = await _client.PostAsJsonAsync($"/api/challenges/{c!.Id}/activities/{c.Goals[0].Activities[0].Id}/log",
+        var logResp = await _client.PostAsJsonAsync($"/api/challenges/{c!.Id}/activities/{c.Activities[0].Id}/log",
             new { amount = 3m });
         var result = await logResp.Content.ReadFromJsonAsync<LogActivityResponse>();
 
@@ -718,9 +737,12 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
                     description = "Earn Stars",
                     type = "Achievement",
                     targetValue = 50m,
-                    unit = "tasks",
-                    activities = new[] { new { name = "Task", unit = "tasks", pointValue = 2m, activityType = "Occurrence" } }
+                    unit = "tasks"
                 }
+            },
+            activities = new[]
+            {
+                new { name = "Task", unit = "tasks", pointValue = 2m, activityType = "Occurrence", goalIndices = new[] { 0 } }
             },
             prizes = new[] { new { description = "Star Prize", cost = (decimal?)null, hasQR = false, challengeGoalId = (Guid?)null } }
         };
@@ -729,7 +751,7 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
         var c = await createResp.Content.ReadFromJsonAsync<ChallengeResponse>();
 
         // Log activity once
-        await _client.PostAsJsonAsync($"/api/challenges/{c!.Id}/activities/{c.Goals[0].Activities[0].Id}/log",
+        await _client.PostAsJsonAsync($"/api/challenges/{c!.Id}/activities/{c.Activities[0].Id}/log",
             new { amount = 5m });
 
         // Check progress
@@ -751,7 +773,7 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
         var c = await CreateSimpleChallengeAsync("No Currency", "SelfOnly");
 
         // Log activity
-        await _client.PostAsJsonAsync($"/api/challenges/{c.Id}/activities/{c.Goals[0].Activities[0].Id}/log",
+        await _client.PostAsJsonAsync($"/api/challenges/{c.Id}/activities/{c.Activities[0].Id}/log",
             new { amount = 5m });
 
         var progResp = await _client.GetAsync($"/api/challenges/{c.Id}/progress");
@@ -782,9 +804,12 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
                     description = "Earn Gold",
                     type = "Achievement",
                     targetValue = 100m,
-                    unit = "tasks",
-                    activities = new[] { new { name = "Task", unit = "tasks", pointValue = 10m, activityType = "Occurrence" } }
+                    unit = "tasks"
                 }
+            },
+            activities = new[]
+            {
+                new { name = "Task", unit = "tasks", pointValue = 10m, activityType = "Occurrence", goalIndices = new[] { 0 } }
             },
             prizes = new[] { new { description = "Gold Prize", cost = 15m, hasQR = false, challengeGoalId = (Guid?)null } }
         };
@@ -792,7 +817,7 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
         var createResp = await _client.PostAsJsonAsync("/api/challenges", body);
         var c = await createResp.Content.ReadFromJsonAsync<ChallengeResponse>();
 
-        var aId = c!.Goals[0].Activities[0].Id;
+        var aId = c!.Activities[0].Id;
 
         // Log two activities: 2 × 10 = 20
         await _client.PostAsJsonAsync($"/api/challenges/{c.Id}/activities/{aId}/log", new { amount = 1m });
@@ -848,9 +873,12 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
                     description = "Earn Gems",
                     type = "Achievement",
                     targetValue = 50m,
-                    unit = "tasks",
-                    activities = new[] { new { name = "Task", unit = "tasks", pointValue = 3m, activityType = "Occurrence" } }
+                    unit = "tasks"
                 }
+            },
+            activities = new[]
+            {
+                new { name = "Task", unit = "tasks", pointValue = 3m, activityType = "Occurrence", goalIndices = new[] { 0 } }
             },
             prizes = new[] { new { description = "Gem Prize", cost = (decimal?)null, hasQR = false, challengeGoalId = (Guid?)null } }
         };
@@ -859,7 +887,7 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
         var c = await createResp.Content.ReadFromJsonAsync<ChallengeResponse>();
 
         // User 1 logs activity
-        await _client.PostAsJsonAsync($"/api/challenges/{c!.Id}/activities/{c.Goals[0].Activities[0].Id}/log",
+        await _client.PostAsJsonAsync($"/api/challenges/{c!.Id}/activities/{c.Activities[0].Id}/log",
             new { amount = 2m });
 
         // Check member progress
@@ -901,9 +929,12 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
                 new
                 {
                     description = "Earn Coins",
-                    type = "Currency",
-                    activities = new[] { new { name = "Task", unit = "times", pointValue = 10m, activityType = "Occurrence" } }
+                    type = "Currency"
                 }
+            },
+            activities = new[]
+            {
+                new { name = "Task", unit = "times", pointValue = 10m, activityType = "Occurrence", goalIndices = new[] { 0 } }
             },
             prizes = new[]
             {
@@ -915,7 +946,7 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
         var c = await createResp.Content.ReadFromJsonAsync<ChallengeResponse>();
 
         // Earn 10 coins
-        var aId = c!.Goals[0].Activities[0].Id;
+        var aId = c!.Activities[0].Id;
         await _client.PostAsJsonAsync($"/api/challenges/{c.Id}/activities/{aId}/log", new { amount = 1m });
 
         // Redeem
@@ -943,9 +974,12 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
                 new
                 {
                     description = "Earn",
-                    type = "Currency",
-                    activities = new[] { new { name = "Task", unit = "times", pointValue = 1m, activityType = "Occurrence" } }
+                    type = "Currency"
                 }
+            },
+            activities = new[]
+            {
+                new { name = "Task", unit = "times", pointValue = 1m, activityType = "Occurrence", goalIndices = new[] { 0 } }
             },
             prizes = new[]
             {
@@ -979,9 +1013,12 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
                     type = "Achievement",
                     targetValue = 5m,
                     unit = "tasks",
-                    isHidden = false,
-                    activities = new[] { new { name = "Task", unit = "tasks", pointValue = 1m, activityType = "Occurrence" } }
+                    isHidden = false
                 }
+            },
+            activities = new[]
+            {
+                new { name = "Task", unit = "tasks", pointValue = 1m, activityType = "Occurrence", goalIndices = new[] { 0 } }
             },
             prizes = new[]
             {
@@ -1007,15 +1044,16 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
                 type = g.Type,
                 targetValue = g.TargetValue,
                 unit = g.Unit,
-                isHidden = false,
-                activities = g.Activities.Select(a => new
-                {
-                    id = a.Id,
-                    name = a.Name,
-                    unit = a.Unit,
-                    pointValue = a.PointValue,
-                    activityType = a.ActivityType
-                }).ToList()
+                isHidden = false
+            }).ToList(),
+            activities = c.Activities?.Select(a => new
+            {
+                id = a.Id,
+                name = a.Name,
+                unit = a.Unit,
+                pointValue = a.PointValue,
+                activityType = a.ActivityType,
+                goalIndices = new[] { 0 }
             }).ToList(),
             prizes = c.Prizes.Select(p => new
             {
@@ -1054,9 +1092,12 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
                     type = "Achievement",
                     targetValue = 3m,
                     unit = "tasks",
-                    isHidden = false,
-                    activities = new[] { new { name = "Task", unit = "tasks", pointValue = 1m, activityType = "Occurrence" } }
+                    isHidden = false
                 }
+            },
+            activities = new[]
+            {
+                new { name = "Task", unit = "tasks", pointValue = 1m, activityType = "Occurrence", goalIndices = new[] { 0 } }
             },
             prizes = new[]
             {
@@ -1066,7 +1107,7 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
 
         var createResp = await _client.PostAsJsonAsync("/api/challenges", body);
         var c = await createResp.Content.ReadFromJsonAsync<ChallengeResponse>();
-        var aId = c!.Goals[0].Activities[0].Id;
+        var aId = c!.Activities[0].Id;
         var goalId = c.Goals[0].Id;
 
         // Link the prize to the goal via PUT
@@ -1083,15 +1124,16 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
                 type = g.Type,
                 targetValue = g.TargetValue,
                 unit = g.Unit,
-                isHidden = false,
-                activities = g.Activities.Select(a => new
-                {
-                    id = a.Id,
-                    name = a.Name,
-                    unit = a.Unit,
-                    pointValue = a.PointValue,
-                    activityType = a.ActivityType
-                }).ToList()
+                isHidden = false
+            }).ToList(),
+            activities = c.Activities?.Select(a => new
+            {
+                id = a.Id,
+                name = a.Name,
+                unit = a.Unit,
+                pointValue = a.PointValue,
+                activityType = a.ActivityType,
+                goalIndices = new[] { 0 }
             }).ToList(),
             prizes = c.Prizes.Select(p => new
             {
@@ -1144,9 +1186,12 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
                     description = "Goal",
                     type = "Achievement",
                     targetValue = 1m,
-                    unit = "x",
-                    activities = new[] { new { name = "Do", unit = "x", pointValue = 1m, activityType = "Occurrence" } }
+                    unit = "x"
                 }
+            },
+            activities = new[]
+            {
+                new { name = "Do", unit = "x", pointValue = 1m, activityType = "Occurrence", goalIndices = new[] { 0 } }
             },
             prizes = new[]
             {
@@ -1178,9 +1223,12 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
                 new
                 {
                     description = "Earn",
-                    type = "Currency",
-                    activities = new[] { new { name = "Task", unit = "times", pointValue = 10m, activityType = "Occurrence" } }
+                    type = "Currency"
                 }
+            },
+            activities = new[]
+            {
+                new { name = "Task", unit = "times", pointValue = 10m, activityType = "Occurrence", goalIndices = new[] { 0 } }
             },
             prizes = new[]
             {
@@ -1190,7 +1238,7 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
 
         var createResp = await _client.PostAsJsonAsync("/api/challenges", body);
         var c = await createResp.Content.ReadFromJsonAsync<ChallengeResponse>();
-        var aId = c!.Goals[0].Activities[0].Id;
+        var aId = c!.Activities[0].Id;
 
         // Earn and redeem
         await _client.PostAsJsonAsync($"/api/challenges/{c.Id}/activities/{aId}/log", new { amount = 1m });
@@ -1278,9 +1326,12 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
                     description = "Goal for " + title,
                     type = "Achievement",
                     targetValue = 100m,
-                    unit = "points",
-                    activities = new[] { new { name = "Activity", unit = "points", pointValue = 1m, activityType = "Occurrence" } }
+                    unit = "points"
                 }
+            },
+            activities = new[]
+            {
+                new { name = "Activity", unit = "points", pointValue = 1m, activityType = "Occurrence", goalIndices = new[] { 0 } }
             },
             prizes = new[]
             {
@@ -1307,9 +1358,12 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
                     description = "Goal",
                     type = "Achievement",
                     targetValue = 10m,
-                    unit = "tasks",
-                    activities = new[] { new { name = "Task", unit = "tasks", pointValue = 1m, activityType = "Occurrence" } }
+                    unit = "tasks"
                 }
+            },
+            activities = new[]
+            {
+                new { name = "Task", unit = "tasks", pointValue = 1m, activityType = "Occurrence", goalIndices = new[] { 0 } }
             },
             prizes = new[]
             {
@@ -1329,9 +1383,10 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
     private record ActivityResponse(Guid Id, string Name, string Unit, decimal PointValue, string ActivityType);
     private record ChallengeResponse(Guid Id, string Title, string Description, string Type, Guid? FamilyId,
         DateTime? StartDate, DateTime? EndDate, DateTime CreatedAt, string? CurrencyName, string? CreatedById,
-        List<GoalResponse> Goals, List<PrizeResponse> Prizes, List<string> TargetUserIds);
+        List<GoalResponse> Goals, List<PrizeResponse> Prizes, List<string> TargetUserIds,
+        List<ActivityResponse>? Activities);
     private record GoalResponse(Guid Id, string Description, string Type, decimal? TargetValue, string? Unit,
-        bool IsHidden, List<ActivityResponse> Activities);
+        bool IsHidden);
     private record PrizeResponse(Guid Id, string Description, decimal? Cost, bool HasQR, Guid? ChallengeGoalId);
     private record GoalProgressResponse(Guid Id, Guid GoalId, string GoalDescription, string GoalType,
         decimal? TargetValue, string? Unit, decimal CurrentValue, bool IsCompleted, DateTime? CompletedAt);

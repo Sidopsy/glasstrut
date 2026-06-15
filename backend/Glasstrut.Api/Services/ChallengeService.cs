@@ -84,8 +84,8 @@ public class ChallengeService : IChallengeService
     {
         var challenge = await _db.Challenges
             .Include(c => c.Goals)
-                .ThenInclude(g => g.Activities)
             .Include(c => c.Activities)
+                .ThenInclude(a => a.GoalLinks)
             .Include(c => c.Prizes)
             .Include(c => c.Targets)
             .FirstOrDefaultAsync(c => c.Id == challengeId)
@@ -153,7 +153,7 @@ public class ChallengeService : IChallengeService
         if (activityDtos == null) return;
 
         var activityIdsWithProgress = await _db.ProgressEntries
-            .Where(e => e.Activity.ChallengeId == challenge.Id && e.Activity.ChallengeGoalId == null)
+            .Where(e => e.Activity.ChallengeId == challenge.Id)
             .Select(e => e.ChallengeActivityId)
             .Distinct()
             .ToListAsync();
@@ -161,14 +161,16 @@ public class ChallengeService : IChallengeService
         var requestActivityIds = activityDtos.Where(a => a.Id.HasValue).Select(a => a.Id!.Value).ToHashSet();
 
         var activitiesToRemove = challenge.Activities
-            .Where(a => a.ChallengeGoalId == null && !activityIdsWithProgress.Contains(a.Id) && !requestActivityIds.Contains(a.Id))
+            .Where(a => !activityIdsWithProgress.Contains(a.Id) && !requestActivityIds.Contains(a.Id))
             .ToList();
         foreach (var a in activitiesToRemove)
             challenge.Activities.Remove(a);
 
+        var validGoalIds = challenge.Goals.Select(g => g.Id).ToHashSet();
+
         foreach (var ad in activityDtos)
         {
-            var existing = ad.Id.HasValue ? challenge.Activities.FirstOrDefault(a => a.Id == ad.Id.Value && a.ChallengeGoalId == null) : null;
+            var existing = ad.Id.HasValue ? challenge.Activities.FirstOrDefault(a => a.Id == ad.Id.Value) : null;
             if (existing != null)
             {
                 existing.Name = ad.Name;
@@ -176,21 +178,66 @@ public class ChallengeService : IChallengeService
                 existing.Unit = ad.Unit;
                 existing.TimeUnit = ad.TimeUnit;
                 existing.PointValue = ad.PointValue;
+
+                if (ad.GoalIds != null)
+                {
+                    var invalidGoalIds = ad.GoalIds.Except(validGoalIds).ToList();
+                    if (invalidGoalIds.Count != 0)
+                        throw new InvalidOperationException($"Activity links to goals not in this challenge: {string.Join(", ", invalidGoalIds)}");
+
+                    var currentGoalIds = existing.GoalLinks.Select(gl => gl.ChallengeGoalId).ToHashSet();
+                    var requestedGoalIds = ad.GoalIds.ToHashSet();
+
+                    var linksToRemove = existing.GoalLinks
+                        .Where(gl => !requestedGoalIds.Contains(gl.ChallengeGoalId))
+                        .ToList();
+                    foreach (var lr in linksToRemove)
+                        existing.GoalLinks.Remove(lr);
+
+                    foreach (var gid in requestedGoalIds)
+                    {
+                        if (!currentGoalIds.Contains(gid))
+                        {
+                            existing.GoalLinks.Add(new ChallengeActivityGoal
+                            {
+                                ChallengeActivityId = existing.Id,
+                                ChallengeGoalId = gid
+                            });
+                        }
+                    }
+                }
             }
             else
             {
-                challenge.Activities.Add(new ChallengeActivity
+                var activity = new ChallengeActivity
                 {
                     Id = Guid.NewGuid(),
                     ChallengeId = challenge.Id,
-                    ChallengeGoalId = null,
                     Name = ad.Name,
                     ActivityType = ad.ActivityType,
                     Unit = ad.Unit,
                     TimeUnit = ad.TimeUnit,
                     PointValue = ad.PointValue,
                     CreatedAt = DateTime.UtcNow,
-                });
+                };
+
+                if (ad.GoalIds != null)
+                {
+                    var invalidGoalIds = ad.GoalIds.Except(validGoalIds).ToList();
+                    if (invalidGoalIds.Count != 0)
+                        throw new InvalidOperationException($"Activity links to goals not in this challenge: {string.Join(", ", invalidGoalIds)}");
+
+                    foreach (var gid in ad.GoalIds)
+                    {
+                        activity.GoalLinks.Add(new ChallengeActivityGoal
+                        {
+                            ChallengeActivityId = activity.Id,
+                            ChallengeGoalId = gid
+                        });
+                    }
+                }
+
+                challenge.Activities.Add(activity);
             }
         }
     }
@@ -239,53 +286,10 @@ public class ChallengeService : IChallengeService
                     existing.TargetValue = gd.Type == "Achievement" ? gd.TargetValue : null;
                     existing.Unit = gd.Unit;
                     existing.IsHidden = gd.IsHidden;
-
-                    var activityIdsWithProgress = await _db.ProgressEntries
-                        .Where(e => e.Activity.ChallengeGoalId != null && e.Activity.Goal!.Id == existing.Id)
-                        .Select(e => e.ChallengeActivityId)
-                        .Distinct()
-                        .ToListAsync();
-
-                    var requestActivityIds = gd.Activities?.Where(a => a.Id.HasValue).Select(a => a.Id!.Value).ToHashSet() ?? [];
-                    var activitiesToRemove = existing.Activities
-                        .Where(a => !activityIdsWithProgress.Contains(a.Id) && !requestActivityIds.Contains(a.Id))
-                        .ToList();
-                    foreach (var a in activitiesToRemove) existing.Activities.Remove(a);
-
-                    if (gd.Activities != null)
-                    {
-                        foreach (var ad in gd.Activities)
-                        {
-                            var existingAct = ad.Id.HasValue ? existing.Activities.FirstOrDefault(a => a.Id == ad.Id.Value) : null;
-                            if (existingAct != null)
-                            {
-                                existingAct.Name = ad.Name;
-                                existingAct.ActivityType = ad.ActivityType;
-                existingAct.Unit = ad.Unit;
-                                existingAct.TimeUnit = ad.TimeUnit;
-                                existingAct.PointValue = ad.PointValue;
-                            }
-                            else
-                            {
-                                existing.Activities.Add(new ChallengeActivity
-                                {
-                                    Id = Guid.NewGuid(),
-                                    ChallengeId = challenge.Id,
-                                    ChallengeGoalId = existing.Id,
-                                    Name = ad.Name,
-                                    ActivityType = ad.ActivityType,
-                                    Unit = ad.Unit,
-                                    TimeUnit = ad.TimeUnit,
-                                    PointValue = ad.PointValue,
-                                    CreatedAt = DateTime.UtcNow,
-                                });
-                            }
-                        }
-                    }
                 }
                 else
                 {
-                    var newGoal = new ChallengeGoal
+                    challenge.Goals.Add(new ChallengeGoal
                     {
                         Id = Guid.NewGuid(),
                         ChallengeId = challenge.Id,
@@ -295,25 +299,7 @@ public class ChallengeService : IChallengeService
                         Unit = gd.Unit,
                         IsHidden = gd.IsHidden,
                         CreatedAt = DateTime.UtcNow,
-                    };
-                    if (gd.Activities != null)
-                    {
-                        foreach (var ad in gd.Activities)
-                        {
-                            newGoal.Activities.Add(new ChallengeActivity
-                            {
-                                Id = Guid.NewGuid(),
-                                ChallengeId = challenge.Id,
-                                ChallengeGoalId = newGoal.Id,
-                                Name = ad.Name,
-                                ActivityType = ad.ActivityType,
-                                Unit = ad.Unit,
-                                PointValue = ad.PointValue,
-                                CreatedAt = DateTime.UtcNow,
-                            });
-                        }
-                    }
-                    challenge.Goals.Add(newGoal);
+                    });
                 }
             }
         }
@@ -355,8 +341,8 @@ public class ChallengeService : IChallengeService
     {
         var challenge = await _db.Challenges
             .Include(c => c.Goals)
-                .ThenInclude(g => g.Activities)
             .Include(c => c.Activities)
+                .ThenInclude(a => a.GoalLinks)
             .Include(c => c.Prizes)
             .Include(c => c.Targets)
             .FirstOrDefaultAsync(c => c.Id == challengeId)
@@ -381,8 +367,8 @@ public class ChallengeService : IChallengeService
     {
         var query = _db.Challenges
             .Include(c => c.Goals)
-                .ThenInclude(g => g.Activities)
             .Include(c => c.Activities)
+                .ThenInclude(a => a.GoalLinks)
             .Include(c => c.Prizes)
             .Include(c => c.Targets)
             .AsQueryable();
@@ -415,13 +401,15 @@ public class ChallengeService : IChallengeService
     private static void AddChallengeActivities(Challenge challenge, List<CreateActivityDto>? activityDtos)
     {
         if (activityDtos == null) return;
+
+        var validGoalIds = challenge.Goals.Select(g => g.Id).ToHashSet();
+
         foreach (var ad in activityDtos)
         {
             var activity = new ChallengeActivity
             {
                 Id = Guid.NewGuid(),
                 ChallengeId = challenge.Id,
-                ChallengeGoalId = null,
                 Name = ad.Name,
                 ActivityType = ad.ActivityType,
                 Unit = ad.Unit,
@@ -429,6 +417,28 @@ public class ChallengeService : IChallengeService
                 PointValue = ad.PointValue,
                 CreatedAt = DateTime.UtcNow,
             };
+
+            if (ad.GoalIndices != null)
+            {
+                var selectedGoals = ad.GoalIndices
+                    .Select(i =>
+                    {
+                        if (i < 0 || i >= challenge.Goals.Count)
+                            throw new InvalidOperationException($"Goal index {i} is out of range. Challenge has {challenge.Goals.Count} goals.");
+                        return challenge.Goals.ElementAt(i);
+                    })
+                    .ToList();
+
+                foreach (var goal in selectedGoals)
+                {
+                    activity.GoalLinks.Add(new ChallengeActivityGoal
+                    {
+                        ChallengeActivityId = activity.Id,
+                        ChallengeGoalId = goal.Id
+                    });
+                }
+            }
+
             challenge.Activities.Add(activity);
         }
     }
@@ -450,27 +460,6 @@ public class ChallengeService : IChallengeService
                     IsHidden = goalDto.IsHidden,
                     CreatedAt = DateTime.UtcNow,
                 };
-
-                if (goalDto.Activities != null)
-                {
-                    foreach (var activityDto in goalDto.Activities)
-                    {
-                        var activity = new ChallengeActivity
-                        {
-                            Id = Guid.NewGuid(),
-                            ChallengeId = challenge.Id,
-                            ChallengeGoalId = goal.Id,
-                            Name = activityDto.Name,
-                            ActivityType = activityDto.ActivityType,
-                            Unit = activityDto.Unit,
-                            TimeUnit = activityDto.TimeUnit,
-                            PointValue = activityDto.PointValue,
-                            CreatedAt = DateTime.UtcNow,
-                        };
-                        goal.Activities.Add(activity);
-                        challenge.Activities.Add(activity);
-                    }
-                }
 
                 challenge.Goals.Add(goal);
             }
@@ -505,17 +494,15 @@ public class ChallengeService : IChallengeService
             c.Id, c.Title, c.Description, c.Type, c.FamilyId,
             c.StartDate, c.EndDate, c.CreatedAt, c.CurrencyName, c.CreatedById,
             c.Goals.Select(g => new ChallengeGoalDto(
-                g.Id, g.Description, g.Type, g.TargetValue, g.Unit, g.IsHidden,
-                g.Activities.Select(a => new ChallengeActivityDto(
-                    a.Id, a.Name, a.ActivityType, a.Unit, a.TimeUnit, a.PointValue
-                )).ToList()
+                g.Id, g.Description, g.Type, g.TargetValue, g.Unit, g.IsHidden
             )).ToList(),
             c.Prizes.Select(p => new ChallengePrizeDto(
                 p.Id, p.Description, p.Cost, p.HasQR, p.ChallengeGoalId
             )).ToList(),
             c.Targets.Select(t => t.UserId).ToList(),
-            c.Activities.Where(a => a.ChallengeGoalId == null).Select(a => new ChallengeActivityDto(
-                a.Id, a.Name, a.ActivityType, a.Unit, a.TimeUnit, a.PointValue
+            c.Activities.Select(a => new ChallengeActivityDto(
+                a.Id, a.Name, a.ActivityType, a.Unit, a.TimeUnit, a.PointValue,
+                a.GoalLinks.Select(gl => gl.ChallengeGoalId).ToList()
             )).ToList()
         );
     }

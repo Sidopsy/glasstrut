@@ -131,3 +131,19 @@ Phase 10 Currency Overhaul & Streak Counter complete.
 - Added `PendingModelChangesWarning` suppression in test factory's `ConfigureWebHost`
 - Added note: tests need `RelationalEventId.PendingModelChangesWarning` ignored when model changes exist without proper migrations
 - Full test coverage: 73 tests pass
+
+### Phase 12 — Chronicle Redemptions, Challenge Deletion & Log Editing (complete)
+- `GET /api/chronicle` unified feed (activity logs + redemptions) with pagination
+- `DELETE /api/challenges/{id}` cascade delete with confirmation modal
+- `PUT /.../log/{entryId}` inline edit with recalculate
+- Full test coverage: 73 tests pass
+
+### Phase 12b — Multi-Goal Activities (complete)
+- Many-to-many join table `ChallengeActivityGoal` replaces `ChallengeActivity.ChallengeGoalId`
+- EF migration `AddChallengeActivityGoalJoinTable` with data migration SQL
+- `CreateActivityDto.GoalIndices` / `UpdateActivityDto.GoalIds` / `ChallengeActivityDto.GoalIds`
+- Backend loops over all linked goals on log/edit
+- Frontend: goal checkboxes in challenge-level activity forms, goal badges in progress views
+- Frontend: removed goal-level activities (all activities now challenge-level only)
+- Wizard now has 4 steps: Info → Goals → Activities → Prizes
+- Full test coverage: 73 tests pass

@@ -52,11 +52,11 @@ public class ChallengeEndpointTests : IClassFixture<CustomWebApplicationFactory>
                     description = "Read books",
                     type = "Achievement",
                     targetValue = 10m,
-                    unit = "books",
-                    activities = new[] {
-                        new { name = "Reading", unit = "books", pointValue = 1m }
-                    }
+                    unit = "books"
                 }
+            },
+            activities = new[] {
+                new { name = "Reading", unit = "books", pointValue = 1m, goalIndices = new[] { 0 } }
             },
             prizes = new[] { new { description = "Ice cream" } }
         };
@@ -70,8 +70,8 @@ public class ChallengeEndpointTests : IClassFixture<CustomWebApplicationFactory>
         Assert.Equal("SelfOnly", challenge.Type);
         Assert.Single(challenge.Goals);
         Assert.Single(challenge.Prizes);
-        Assert.Single(challenge.Goals[0].Activities);
-        Assert.Equal("Reading", challenge.Goals[0].Activities[0].Name);
+        Assert.Single(challenge.Activities);
+        Assert.Equal("Reading", challenge.Activities[0].Name);
     }
 
     [Fact]
@@ -93,29 +93,26 @@ public class ChallengeEndpointTests : IClassFixture<CustomWebApplicationFactory>
                     description = "Bronze",
                     type = "Achievement",
                     targetValue = 100m,
-                    unit = "km",
-                    activities = new[] {
-                        new { name = "Running", unit = "km", pointValue = 1m }
-                    }
+                    unit = "km"
                 },
                 new {
                     description = "Silver",
                     type = "Achievement",
                     targetValue = 150m,
-                    unit = "km",
-                    activities = new[] {
-                        new { name = "Running", unit = "km", pointValue = 1m }
-                    }
+                    unit = "km"
                 },
                 new {
                     description = "Gold",
                     type = "Achievement",
                     targetValue = 200m,
-                    unit = "km",
-                    activities = new[] {
-                        new { name = "Running", unit = "km", pointValue = 1m }
-                    }
+                    unit = "km"
                 },
+            },
+            activities = new[]
+            {
+                new { name = "Running", unit = "km", pointValue = 1m, goalIndices = new[] { 0 } },
+                new { name = "Running", unit = "km", pointValue = 1m, goalIndices = new[] { 1 } },
+                new { name = "Running", unit = "km", pointValue = 1m, goalIndices = new[] { 2 } }
             },
             prizes = new[]
             {
@@ -133,9 +130,9 @@ public class ChallengeEndpointTests : IClassFixture<CustomWebApplicationFactory>
         Assert.Equal("Achievement", challenge.Goals[0].Type);
         Assert.Equal(100, challenge.Goals[0].TargetValue);
         Assert.Equal("km", challenge.Goals[0].Unit);
-        Assert.Single(challenge.Goals[0].Activities);
-        Assert.Equal("Running", challenge.Goals[0].Activities[0].Name);
-        Assert.Equal(1, challenge.Goals[0].Activities[0].PointValue);
+        Assert.Equal(3, challenge.Activities.Count);
+        Assert.Equal("Running", challenge.Activities[0].Name);
+        Assert.Equal(1, challenge.Activities[0].PointValue);
         Assert.Single(challenge.Prizes);
         Assert.Equal(50, challenge.Prizes[0].Cost);
     }
@@ -156,12 +153,13 @@ public class ChallengeEndpointTests : IClassFixture<CustomWebApplicationFactory>
             {
                 new {
                     description = "Earn Ice Cream Points",
-                    type = "Currency",
-                    activities = new[] {
-                        new { name = "Clean room", unit = "times", pointValue = 5m },
-                        new { name = "Wash dishes", unit = "times", pointValue = 3m },
-                    }
+                    type = "Currency"
                 },
+            },
+            activities = new[]
+            {
+                new { name = "Clean room", unit = "times", pointValue = 5m, goalIndices = new[] { 0 } },
+                new { name = "Wash dishes", unit = "times", pointValue = 3m, goalIndices = new[] { 0 } },
             },
             prizes = new[]
             {
@@ -178,9 +176,9 @@ public class ChallengeEndpointTests : IClassFixture<CustomWebApplicationFactory>
         Assert.Equal("Ice Cream Points", challenge.CurrencyName);
         Assert.Single(challenge.Goals);
         Assert.Equal("Currency", challenge.Goals[0].Type);
-        Assert.Equal(2, challenge.Goals[0].Activities.Count);
-        Assert.Equal(5, challenge.Goals[0].Activities[0].PointValue);
-        Assert.Equal("Clean room", challenge.Goals[0].Activities[0].Name);
+        Assert.Equal(2, challenge.Activities.Count);
+        Assert.Equal(5, challenge.Activities[0].PointValue);
+        Assert.Equal("Clean room", challenge.Activities[0].Name);
         Assert.Equal(2, challenge.Prizes.Count);
         Assert.Equal(10, challenge.Prizes[1].Cost);
     }
@@ -202,11 +200,11 @@ public class ChallengeEndpointTests : IClassFixture<CustomWebApplicationFactory>
                     description = "Clean room",
                     type = "Achievement",
                     targetValue = 1m,
-                    unit = "room",
-                    activities = new[] {
-                        new { name = "Cleaning", unit = "room", pointValue = 1m }
-                    }
+                    unit = "room"
                 }
+            },
+            activities = new[] {
+                new { name = "Cleaning", unit = "room", pointValue = 1m, goalIndices = new[] { 0 } }
             },
             prizes = new[] { new { description = "Pizza night" } }
         };
@@ -325,11 +323,11 @@ public class ChallengeEndpointTests : IClassFixture<CustomWebApplicationFactory>
                     description = "Task",
                     type = "Achievement",
                     targetValue = 1m,
-                    unit = "task",
-                    activities = new[] {
-                        new { name = "Do task", unit = "task", pointValue = 1m }
-                    }
+                    unit = "task"
                 }
+            },
+            activities = new[] {
+                new { name = "Do task", unit = "task", pointValue = 1m, goalIndices = new[] { 0 } }
             }
         };
         await _client.PostAsJsonAsync("/api/challenges", body);
@@ -376,8 +374,8 @@ public class ChallengeEndpointTests : IClassFixture<CustomWebApplicationFactory>
     private record ActivityResponse(Guid Id, string Name, string Unit, decimal PointValue);
     private record ChallengeResponse(Guid Id, string Title, string Description, string Type, Guid? FamilyId,
         DateTime? StartDate, DateTime? EndDate, DateTime CreatedAt, string? CurrencyName,
-        List<GoalResponse> Goals, List<PrizeResponse> Prizes, List<string> TargetUserIds);
-    private record GoalResponse(Guid Id, string Description, string Type, decimal? TargetValue, string? Unit,
-        List<ActivityResponse> Activities);
+        List<GoalResponse> Goals, List<PrizeResponse> Prizes, List<string> TargetUserIds,
+        List<ActivityResponse>? Activities);
+    private record GoalResponse(Guid Id, string Description, string Type, decimal? TargetValue, string? Unit);
     private record PrizeResponse(Guid Id, string Description, decimal? Cost);
 }

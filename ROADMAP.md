@@ -101,3 +101,15 @@
 - [x] Inline edit form on activity log entries (amount, time, notes)
 - [x] Recalculates currency balance and goal progress on edit; handles completion/un-completion
 - [ ] Notifications (optional)
+
+## Phase 12b — Multi-Goal Activities
+- [x] Many-to-many join table `ChallengeActivityGoal` linking activities to multiple goals
+- [x] EF migration with data migration from old `ChallengeActivity.ChallengeGoalId`
+- [x] `GoalLinks` navigation on `ChallengeActivity`; `ChallengeGoalId` removed
+- [x] DTOs: `CreateActivityDto.GoalIndices`, `UpdateActivityDto.GoalIds`, `ChallengeActivityDto.GoalIds`
+- [x] Activity logging loop over all linked goals (backend recalculates each)
+- [x] Edit activity entry updates all linked goals
+- [x] Frontend: goal checkboxes in challenge-level activity forms
+- [x] Frontend: goal badges on activity log forms in progress views
+- [x] Frontend: removed goal-level activities (all activities now challenge-level)
+- [x] All 73 existing tests pass
