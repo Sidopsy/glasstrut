@@ -1675,12 +1675,6 @@ async function submitChallenge(event) {
   const method = isEdit ? "PUT" : "POST";
   const url = isEdit ? `/api/challenges/${editId}` : "/api/challenges";
 
-  const res = await apiFetch(url, {
-    method,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-
   setLoading(btn, true, editId ? "Save Changes" : "Create");
   const res = await apiFetch(url, {
     method,
