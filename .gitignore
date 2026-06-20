@@ -14,3 +14,6 @@ UX-REVIEW-FINDINGS.md
 # Backend runtime logs
 backend/*.log
 backend/*.err
+
+# Publish output
+publish/
