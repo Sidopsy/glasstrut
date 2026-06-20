@@ -57,7 +57,7 @@ public class GoalService : IGoalService
             if (raw > 0) currencyEarned = raw;
         }
 
-        var now = request.ClientRecordedAt ?? DateTime.UtcNow;
+        var now = request.OccurredAt ?? DateTime.UtcNow;
         var entry = new ProgressEntry
         {
             Id = Guid.NewGuid(),
@@ -347,7 +347,7 @@ public class GoalService : IGoalService
         entry.Unit = entry.Activity.Unit;
         entry.CurrencyEarned = newCurrency;
         entry.Notes = request.Notes;
-        entry.RecordedAt = request.ClientRecordedAt ?? DateTime.UtcNow;
+        entry.RecordedAt = request.OccurredAt ?? DateTime.UtcNow;
 
         await _db.SaveChangesAsync();
 
@@ -570,7 +570,8 @@ public class GoalService : IGoalService
             e.Notes,
             e.RecordedAt,
             e.CurrencyEarned,
-            e.ChallengeActivityId
+            e.ChallengeActivityId,
+            e.CreatedAt
         )).ToList();
     }
 
@@ -601,7 +602,8 @@ public class GoalService : IGoalService
                 e.Unit,
                 e.CurrencyEarned,
                 null, null,
-                e.RecordedAt
+                e.RecordedAt,
+                e.CreatedAt
             ))
             .ToListAsync();
 
@@ -616,6 +618,7 @@ public class GoalService : IGoalService
                 null, null, null, null,
                 c.Prize.Description,
                 c.Prize.Cost,
+                c.ClaimedAt,
                 c.ClaimedAt
             ))
             .ToListAsync();

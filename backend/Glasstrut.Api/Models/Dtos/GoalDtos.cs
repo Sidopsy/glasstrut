@@ -4,7 +4,7 @@ public record LogProgressRequest(
     decimal Amount,
     decimal? TimeAmount = null,
     string? Notes = null,
-    DateTime? ClientRecordedAt = null
+    DateTime? OccurredAt = null
 );
 
 public record LogActivityResponse(
@@ -75,7 +75,8 @@ public record ActivityLogEntryDto(
     string? Notes,
     DateTime RecordedAt,
     decimal? CurrencyEarned = null,
-    Guid? ActivityId = null
+    Guid? ActivityId = null,
+    DateTime CreatedAt = default
 );
 
 public record ChronicleEntryDto(
@@ -88,5 +89,6 @@ public record ChronicleEntryDto(
     decimal? CurrencyEarned,
     string? PrizeDescription,
     decimal? Cost,
-    DateTime RecordedAt
+    DateTime RecordedAt,
+    DateTime CreatedAt = default
 );

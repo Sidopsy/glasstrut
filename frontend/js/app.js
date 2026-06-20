@@ -21,6 +21,170 @@ function authHeaders() {
 
 const CACHE_PREFIX = "apiCache_";
 const OFFLINE_QUEUE_KEY = "offlineQueue";
+const PENDING_COUNT_KEY = "pendingCount";
+
+// ========== INDEXEDDB LOCAL STORE ==========
+
+const DB_NAME = "glasstrut";
+const DB_VERSION = 1;
+let _db = null;
+
+function openDb() {
+  return new Promise((resolve, reject) => {
+    if (_db) return resolve(_db);
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains("cache")) {
+        db.createObjectStore("cache", { keyPath: "key" });
+      }
+      if (!db.objectStoreNames.contains("pending")) {
+        const store = db.createObjectStore("pending", { keyPath: "id", autoIncrement: true });
+        store.createIndex("status", "status", { unique: false });
+      }
+    };
+    request.onsuccess = (e) => { _db = e.target.result; resolve(_db); };
+    request.onerror = () => { reject(request.error); };
+  });
+}
+
+async function dbGet(storeName, key) {
+  try {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, "readonly");
+      const store = tx.objectStore(storeName);
+      const req = store.get(key);
+      req.onsuccess = () => resolve(req.result ? req.result.value : null);
+      req.onerror = () => reject(req.error);
+    });
+  } catch { return null; }
+}
+
+async function dbPut(storeName, key, value) {
+  try {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, "readwrite");
+      const store = tx.objectStore(storeName);
+      store.put({ key, value });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch { /* ignore */ }
+}
+
+async function dbDelete(storeName, key) {
+  try {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, "readwrite");
+      const store = tx.objectStore(storeName);
+      store.delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch { /* ignore */ }
+}
+
+async function dbGetAll(storeName) {
+  try {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, "readonly");
+      const store = tx.objectStore(storeName);
+      const req = store.getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  } catch { return []; }
+}
+
+async function dbClear(storeName) {
+  try {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, "readwrite");
+      const store = tx.objectStore(storeName);
+      store.clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch { /* ignore */ }
+}
+
+// Pending entries queue (IndexedDB-backed)
+async function getPendingEntries() {
+  const entries = await dbGetAll("pending");
+  return entries || [];
+}
+
+async function addPendingEntry(entry) {
+  try {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction("pending", "readwrite");
+      const store = tx.objectStore("pending");
+      store.add({ ...entry, status: "pending", createdAt: new Date().toISOString() });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch { /* ignore */ }
+}
+
+async function removePendingEntry(id) {
+  try {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction("pending", "readwrite");
+      const store = tx.objectStore("pending");
+      store.delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch { /* ignore */ }
+}
+
+async function replayPendingQueue() {
+  const entries = await getPendingEntries();
+  if (entries.length === 0) return;
+  const remaining = [];
+  for (const entry of entries) {
+    const body = entry.body || null;
+    const headers = { ...authHeaders(), "Content-Type": "application/json" };
+    try {
+      const res = await fetch(API + entry.path, {
+        method: entry.method || "POST",
+        headers,
+        body: body ? (typeof body === "string" ? body : JSON.stringify(body)) : undefined,
+      });
+      if (res.ok) {
+        await removePendingEntry(entry.id);
+      } else {
+        remaining.push(entry);
+      }
+    } catch {
+      remaining.push(entry);
+    }
+  }
+  updatePendingIndicator();
+  if (remaining.length < entries.length) {
+    showToast("Sync Complete", `${entries.length - remaining.length} offline activities synced!`, "success");
+  }
+  if (remaining.length > 0) {
+    showToast("Sync Failed", `${remaining.length} items could not be synced. They will be retried.`, "error");
+  }
+}
+
+// In-memory request deduplication
+const inFlightRequests = {};
+
+function dedupFetch(path, fetchFn) {
+  if (inFlightRequests[path]) return inFlightRequests[path];
+  const promise = fetchFn().finally(() => { delete inFlightRequests[path]; });
+  inFlightRequests[path] = promise;
+  return promise;
+}
 
 function getCacheKey(path) { return CACHE_PREFIX + path; }
 
@@ -40,6 +204,7 @@ function setCachedResponse(path, data) {
 function clearCache() {
   const keys = Object.keys(localStorage).filter(k => k.startsWith(CACHE_PREFIX));
   keys.forEach(k => localStorage.removeItem(k));
+  dbClear("cache");
 }
 
 function getOfflineQueue() {
@@ -55,10 +220,25 @@ function setOfflineQueue(queue) {
   } catch { /* storage full, ignore */ }
 }
 
-function addToOfflineQueue(path, options, body) {
+async function addToOfflineQueue(path, options, body) {
   const queue = getOfflineQueue();
   queue.push({ path, options, body, timestamp: new Date().toISOString() });
   setOfflineQueue(queue);
+  await updatePendingIndicator();
+}
+
+async function updatePendingIndicator() {
+  const el = document.getElementById("pending-indicator");
+  if (!el) return;
+  const queue = getOfflineQueue();
+  const pending = await getPendingEntries();
+  const total = queue.length + pending.length;
+  if (total > 0) {
+    el.textContent = `📤 ${total} pending`;
+    el.classList.remove("hidden");
+  } else {
+    el.classList.add("hidden");
+  }
 }
 
 async function replayOfflineQueue() {
@@ -74,6 +254,7 @@ async function replayOfflineQueue() {
     }
   }
   setOfflineQueue(remaining);
+  await updatePendingIndicator();
   if (remaining.length < queue.length) {
     showToast("Sync Complete", `${queue.length - remaining.length} offline activities synced!`, "success");
   }
@@ -88,40 +269,64 @@ async function apiFetch(path, options = {}) {
   const method = (options.method || "GET").toUpperCase();
 
   if (method === "GET") {
-    const cached = getCachedResponse(path);
-    try {
-      const res = await fetch(API + path, { ...options, headers });
-      if (res.status === 401) {
-        localStorage.removeItem("token");
-        window.location.reload();
+    // Try IndexedDB cache first
+    const cached = await dbGet("cache", path);
+    const fetchFn = async () => {
+      try {
+        const res = await fetch(API + path, { ...options, headers });
+        if (res.status === 401) {
+          localStorage.removeItem("token");
+          showToast("Session Expired", "Please log in again.", "error");
+          setTimeout(() => showAuth(), 1500);
+          return { ok: false, status: 401, json: async () => ({ error: "Session expired" }) };
+        }
+        if (res.ok) {
+          const data = await res.json();
+          await dbPut("cache", path, data);
+          return { ok: true, json: async () => data, status: res.status, headers: res.headers };
+        }
+        if (cached && !res.ok) {
+          return { ok: true, json: async () => cached, status: 200, headers: res.headers, _fromCache: true };
+        }
+        return { ok: false, status: res.status, json: async () => ({ error: "Request failed" }) };
+      } catch {
+        if (cached) {
+          return { ok: true, json: async () => cached, status: 200, headers: new Headers(), _fromCache: true };
+        }
+        throw new Error("Network error and no cached data available");
       }
-      if (res.ok) {
-        const data = await res.json();
-        setCachedResponse(path, data);
-        return { ok: true, json: async () => data, status: res.status, headers: res.headers };
-      }
-      if (cached && !res.ok) {
-        return { ok: true, json: async () => cached, status: 200, headers: res.headers, _fromCache: true };
-      }
-      return { ok: false, status: res.status, json: async () => ({ error: "Request failed" }) };
-    } catch {
-      if (cached) {
-        showToast("Offline Mode", "Showing cached data", "info");
-        return { ok: true, json: async () => cached, status: 200, headers: new Headers(), _fromCache: true };
-      }
-      throw new Error("Network error and no cached data available");
-    }
+    };
+    return dedupFetch(path, fetchFn);
   }
 
+  // Non-GET: write to IndexedDB pending queue first, then try network
+  const cacheKey = path + ":" + method + ":" + JSON.stringify(options.body);
   try {
     const res = await fetch(API + path, { ...options, headers });
     if (res.status === 401) {
       localStorage.removeItem("token");
-      window.location.reload();
+      showToast("Session Expired", "Please log in again.", "error");
+      setTimeout(() => showAuth(), 1500);
+      return { ok: false, status: 401, json: async () => ({ error: "Session expired" }) };
     }
+    // On success, remove pending entry if it exists
+    const pendingEntries = await getPendingEntries();
+    for (const pe of pendingEntries) {
+      if (pe.cacheKey === cacheKey) {
+        await removePendingEntry(pe.id);
+      }
+    }
+    await updatePendingIndicator();
     return res;
   } catch {
-    addToOfflineQueue(path, options, options.body);
+    // Save to IndexedDB pending queue
+    await addPendingEntry({
+      path,
+      method,
+      body: options.body,
+      cacheKey,
+    });
+    await updatePendingIndicator();
     showToast("Offline", "Activity queued — will sync when online", "info");
     return { ok: true, json: async () => ({}), _queued: true };
   }
@@ -131,6 +336,21 @@ function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str;
   return div.innerHTML;
+}
+
+function setLoading(btn, loading, text) {
+  if (!btn) return;
+  btn.disabled = loading;
+  btn.innerHTML = loading
+    ? '<span class="inline-block h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>'
+    : (text || btn.dataset.originalText || btn.textContent);
+  if (!btn.dataset.originalText) btn.dataset.originalText = text || btn.textContent;
+}
+
+function renderSkeleton(count) {
+  return Array(count).fill(0).map(() =>
+    '<div class="skeleton h-20 w-full mb-3"></div>'
+  ).join("");
 }
 
 function timeAgo(dateStr) {
@@ -146,6 +366,8 @@ function timeAgo(dateStr) {
   if (days < 7) return days + "d ago";
   return date.toLocaleDateString();
 }
+
+let unsavedWizardChanges = false;
 
 function getDayGreeting() {
   const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -175,7 +397,7 @@ function decodeUserId() {
 
 function spawnConfetti() {
   const colors = ["#4f46e5", "#f59e0b", "#10b981", "#ef4444", "#8b5cf6", "#ec4899"];
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 25; i++) {
     const piece = document.createElement("div");
     piece.className = "confetti-piece";
     piece.style.left = Math.random() * 100 + "vw";
@@ -195,13 +417,20 @@ function showToast(title, description, type) {
   const container = document.getElementById("toast-container");
   if (!container) return;
 
+  // Cap visible toasts at 3
+  while (container.children.length >= 3) {
+    const oldest = container.children[0];
+    oldest.classList.add("toast-exit");
+    setTimeout(() => oldest.remove(), 250);
+  }
+
   const bg = type === "surprise" ? "bg-gradient-to-r from-amber-400 to-orange-500"
     : type === "success" ? "bg-green-500"
     : type === "error" ? "bg-red-500"
     : "bg-indigo-600";
 
   const toast = document.createElement("div");
-  toast.className = `${bg} text-white rounded-2xl p-4 shadow-lg pointer-events-auto animate-slide-down flex items-start gap-3`;
+  toast.className = `${bg} text-white rounded-2xl p-4 shadow-lg pointer-events-auto toast-enter flex items-start gap-3`;
   toast.innerHTML = `
     <span class="text-xl shrink-0">${type === "surprise" ? "🎉" : type === "success" ? "✅" : type === "error" ? "❌" : "ℹ️"}</span>
     <div class="flex-1 min-w-0">
@@ -210,8 +439,61 @@ function showToast(title, description, type) {
     </div>
     <button onclick="this.parentElement.remove()" class="text-white/80 hover:text-white shrink-0 text-lg leading-none">&times;</button>
   `;
+
+  // Swipe-to-dismiss
+  let startX = 0;
+  toast.addEventListener("touchstart", e => { startX = e.touches[0].clientX; }, { passive: true });
+  toast.addEventListener("touchmove", e => {
+    const dx = e.touches[0].clientX - startX;
+    if (dx > 0) toast.style.transform = `translateX(${dx}px)`;
+    if (dx > 80) { toast.classList.add("toast-exit"); setTimeout(() => toast.remove(), 250); }
+  }, { passive: true });
+
   container.appendChild(toast);
-  setTimeout(() => { toast.style.opacity = "0"; toast.style.transform = "translateY(-20px)"; toast.style.transition = "all 0.3s"; setTimeout(() => toast.remove(), 300); }, 5000);
+  setTimeout(() => {
+    if (toast.parentNode) {
+      toast.classList.add("toast-exit");
+      setTimeout(() => toast.remove(), 250);
+    }
+  }, 5000);
+}
+
+function showConfirmModal(message, onConfirm) {
+  const existing = document.getElementById("confirm-modal");
+  if (existing) existing.remove();
+
+  const modal = document.createElement("div");
+  modal.id = "confirm-modal";
+  modal.className = "fixed inset-0 bg-black/50 z-[3000] flex items-center justify-center p-4";
+  modal.setAttribute("role", "alertdialog");
+  modal.innerHTML = `
+    <div class="bg-white rounded-3xl p-6 shadow-lg max-w-sm w-full">
+      <div class="text-center mb-4">
+        <span class="text-5xl block mb-3">⚠️</span>
+        <p class="text-sm text-slate-600">${escapeHtml(message)}</p>
+      </div>
+      <div class="flex gap-3">
+        <button onclick="this.closest('#confirm-modal').remove()" class="flex-1 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-colors">Cancel</button>
+        <button id="confirm-yes" class="flex-1 py-3 bg-red-500 text-white font-bold rounded-xl hover:bg-red-600 transition-colors">Confirm</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.querySelector("#confirm-yes").onclick = () => { modal.remove(); onConfirm(); };
+  modal.querySelector("button:first-child").focus();
+}
+
+function togglePasswordVisibility() {
+  const pw = document.getElementById("auth-password");
+  const btn = document.getElementById("password-toggle");
+  if (!pw || !btn) return;
+  if (pw.type === "password") {
+    pw.type = "text";
+    btn.textContent = "Hide";
+  } else {
+    pw.type = "password";
+    btn.textContent = "Show";
+  }
 }
 
 // ========== AUTH ==========
@@ -243,6 +525,11 @@ function showDashboard(email) {
   document.getElementById("user-avatar").textContent = initial;
   document.getElementById("profile-avatar").textContent = initial;
 
+  // Check system dark mode preference
+  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    document.body.classList.add("dark-mode");
+  }
+
   loadFamilies();
   loadAllData();
   switchTab("home");
@@ -259,18 +546,20 @@ function showDashboard(email) {
 }
 
 function logout() {
-  closeScanner();
-  localStorage.removeItem("token");
-  localStorage.removeItem("username");
-  currentChallengeId = null;
-  currentMemberId = null;
-  isRegisterMode = false;
-  cachedChallenges = [];
-  cachedProgressMap = {};
-  cachedFamilies = [];
-  currentUserId = null;
-  currentUserEmail = null;
-  showAuth();
+  showConfirmModal("Log out of Glasstrut? Your data is saved locally.", () => {
+    closeScanner();
+    localStorage.removeItem("token");
+    localStorage.removeItem("username");
+    currentChallengeId = null;
+    currentMemberId = null;
+    isRegisterMode = false;
+    cachedChallenges = [];
+    cachedProgressMap = {};
+    cachedFamilies = [];
+    currentUserId = null;
+    currentUserEmail = null;
+    showAuth();
+  });
 }
 
 function clearAuthError() {
@@ -326,11 +615,28 @@ function switchTab(tab) {
   document.querySelectorAll(".tab-btn").forEach(btn => {
     const isActive = btn.dataset.tab === tab;
     btn.classList.toggle("text-indigo-600", isActive);
-    btn.classList.toggle("text-slate-400", !isActive);
+    btn.classList.toggle("text-slate-500", !isActive);
+    if (isActive) btn.setAttribute("aria-current", "page");
+    else btn.removeAttribute("aria-current");
   });
   if (tab === "treasury") loadTreasury();
   if (tab === "home") refreshPoints();
 }
+
+// ========== KEYBOARD SHORTCUTS ==========
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    const modal = document.querySelector("#challenge-modal:not(.hidden)");
+    if (modal) { closeChallengeModal(); return; }
+    const deleteModal = document.getElementById("delete-modal");
+    if (deleteModal) { deleteModal.remove(); return; }
+    const confirmModal = document.getElementById("confirm-modal");
+    if (confirmModal) { confirmModal.remove(); return; }
+    closeQrModal();
+    closeScanner();
+  }
+});
 
 // ========== DOMContentLoaded ==========
 
@@ -355,8 +661,10 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("login-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const errorDiv = document.getElementById("auth-error");
+    const btn = document.getElementById("auth-submit-btn");
     const email = document.getElementById("auth-email").value;
     const password = document.getElementById("auth-password").value;
+    setLoading(btn, true, isRegisterMode ? "REGISTER" : "LOG IN");
     try {
       const endpoint = isRegisterMode ? "/api/auth/register" : "/api/auth/login";
       const data = await authFetch(endpoint, email, password);
@@ -367,58 +675,92 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (err) {
       errorDiv.textContent = err.message;
       errorDiv.classList.remove("hidden");
+    } finally {
+      setLoading(btn, false);
     }
   });
 
   document.getElementById("auth-email").addEventListener("input", () => {
     const val = document.getElementById("auth-email").value;
     const el = document.getElementById("email-validation");
-    if (val.includes("@") && val.includes(".")) {
+    const isValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val);
+    if (val.length > 0 && isValid) {
+      el.textContent = "✅ Valid Email";
+      el.classList.remove("hidden");
+    } else if (val.length > 0) {
+      el.textContent = "❌ Invalid Email";
       el.classList.remove("hidden");
     } else {
       el.classList.add("hidden");
     }
   });
 
+  document.getElementById("auth-password").addEventListener("input", () => {
+    const val = document.getElementById("auth-password").value;
+    const el = document.getElementById("password-strength");
+    if (!el || !isRegisterMode) return;
+    if (val.length === 0) { el.classList.add("hidden"); return; }
+    let strength = "Weak";
+    let color = "text-red-500";
+    if (val.length >= 8 && /[!@#$%^&*(),.?":{}|<>]/.test(val) && /\d/.test(val)) {
+      strength = "Strong";
+      color = "text-green-500";
+    } else if (val.length >= 6 && /[!@#$%^&*(),.?":{}|<>]/.test(val)) {
+      strength = "Medium";
+      color = "text-amber-500";
+    }
+    el.textContent = `Strength: ${strength}`;
+    el.className = `text-xs font-medium mt-1 ${color}`;
+    el.classList.remove("hidden");
+  });
+
   document.getElementById("create-family-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const name = document.getElementById("family-name").value;
+    const btn = e.target.querySelector("button[type='submit']");
+    setLoading(btn, true, "Create");
     const formData = new URLSearchParams({ name });
     const res = await apiFetch("/api/families", { method: "POST", body: formData });
+    setLoading(btn, false);
     if (res.ok) {
       document.getElementById("family-name").value = "";
       loadFamilies();
+      showToast("Family Created", `"${name}" is ready! Share the invite code with your family.`, "success");
     } else {
       const data = await res.json().catch(() => ({}));
-      alert(data.error || "Failed to create family");
+      showToast("Error", data.error || "Failed to create family", "error");
     }
   });
 
   document.getElementById("join-family-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const inviteCode = document.getElementById("invite-code").value;
+    const btn = e.target.querySelector("button[type='submit']");
+    setLoading(btn, true, "Join");
     const formData = new URLSearchParams({ inviteCode });
     const res = await apiFetch("/api/families/join", { method: "POST", body: formData });
+    setLoading(btn, false);
     if (res.ok) {
       document.getElementById("invite-code").value = "";
       loadFamilies();
+      showToast("Joined Family", "Welcome to the family!", "success");
     } else {
       const data = await res.json().catch(() => ({}));
-      alert(data.error || "Failed to join family");
+      showToast("Error", data.error || "Failed to join family", "error");
     }
   });
 
   // Online/offline handling
   window.addEventListener("online", () => {
     document.getElementById("offline-banner")?.classList.add("hidden");
-    replayOfflineQueue().then(() => loadAllData());
+    replayPendingQueue().then(() => loadAllData());
   });
   window.addEventListener("offline", () => {
     document.getElementById("offline-banner")?.classList.remove("hidden");
   });
 
   // Replay any pending queue on page load
-  replayOfflineQueue();
+  replayPendingQueue();
 });
 
 // ========== DATA LOADING ==========
@@ -487,6 +829,7 @@ async function loadAchievements() {
     return;
   }
   count.textContent = achievements.length;
+  achievements.sort((a, b) => new Date(b.unlockedAt) - new Date(a.unlockedAt));
   list.innerHTML = achievements.map(a => `
     <div class="bg-amber-50 rounded-2xl p-4 shadow-sm border border-amber-100 flex items-center gap-3">
       <span class="text-2xl">🏆</span>
@@ -555,6 +898,7 @@ function renderQuickLog() {
   const top = sorted.slice(0, showCount);
   const rest = sorted.slice(showCount);
 
+  const today = new Date().toISOString().split("T")[0];
   const makeForm = (a) => {
     const isDistTime = a.activityType === "DistanceAndTime";
     return `
@@ -573,6 +917,7 @@ function renderQuickLog() {
             <input type="number" inputmode="decimal" step="any" placeholder="Amount" required
               class="ql-amount w-20 py-1.5 px-2 bg-slate-100 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-xs">
           `}
+          <input type="date" class="ql-date w-28 py-1.5 px-2 bg-slate-100 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-xs" max="${today}" value="${today}">
           <button type="submit" class="py-1.5 px-4 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition-colors text-xs whitespace-nowrap">+ Log</button>
         </div>
       </form>
@@ -600,9 +945,11 @@ function renderQuickLog() {
 async function quickLogSubmit(challengeId, activityId, event) {
   event.preventDefault();
   const form = event.target;
+  const btn = form.querySelector("button[type='submit']");
   const distInput = form.querySelector(".ql-dist");
   const timeInput = form.querySelector(".ql-time");
   const amountInput = form.querySelector(".ql-amount");
+  const dateInput = form.querySelector(".ql-date");
 
   let amount, timeAmount;
   if (distInput && timeInput) {
@@ -616,16 +963,20 @@ async function quickLogSubmit(challengeId, activityId, event) {
 
   const body = { amount };
   if (timeAmount != null) body.timeAmount = timeAmount;
+  if (dateInput && dateInput.value) body.occurredAt = new Date(dateInput.value + "T12:00:00").toISOString();
 
+  setLoading(btn, true);
   const res = await apiFetch(`/api/challenges/${challengeId}/activities/${activityId}/log`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+  setLoading(btn, false);
 
   if (res.ok) {
     const data = await res.json();
     recordQuickLog(activityId);
+    if (navigator.vibrate) navigator.vibrate(10);
     if (data.surprise) {
       showToast(data.surprise.title, data.surprise.description, "surprise");
     }
@@ -636,7 +987,7 @@ async function quickLogSubmit(challengeId, activityId, event) {
     loadAllData();
   } else {
     const data = await res.json().catch(() => ({}));
-    alert(data.error || "Failed to log activity");
+    showToast("Error", data.error || "Failed to log activity", "error");
   }
 }
 
@@ -660,7 +1011,7 @@ function renderUpNext() {
     const streak = p ? (p.currentStreak || 0) : 0;
     const currencyName = p ? p.currencyName : (c.currencyName || null);
     return `
-      <div class="snap-start shrink-0 w-64 bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex flex-col justify-between cursor-pointer" onclick="showProgress('${c.id}')">
+      <div class="snap-start shrink-0 w-64 bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex flex-col justify-between cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all" onclick="showProgress('${c.id}')">
         <div>
           <div class="flex items-start justify-between mb-3">
             <div class="h-10 w-10 rounded-xl bg-indigo-100 flex items-center justify-center text-xl">${emoji}</div>
@@ -688,7 +1039,7 @@ async function renderChronicleFeed() {
   chronicleOffset = 0;
   chronicleDone = false;
   chronicleLoading = false;
-  container.innerHTML = "";
+  container.innerHTML = renderSkeleton(3);
   await loadMoreChronicle();
   setupChronicleInfiniteScroll();
 }
@@ -709,11 +1060,30 @@ async function loadMoreChronicle() {
       chronicleLoading = false;
       return;
     }
+    // Update Live badge based on most recent entry
+    if (entries.length > 0) {
+      const mostRecent = new Date(entries[0].recordedAt);
+      const hoursAgo = (Date.now() - mostRecent.getTime()) / 3600000;
+      const badge = document.getElementById("chronicle-live-badge");
+      if (badge) {
+        if (hoursAgo > 24) {
+          badge.innerHTML = `<span class="h-2 w-2 rounded-full bg-slate-400"></span> Updated ${Math.round(hoursAgo)}h ago`;
+          badge.className = "text-xs font-semibold text-slate-400 flex items-center gap-1";
+        }
+      }
+    }
     chronicleOffset += entries.length;
     const userIcons = {};
     container.insertAdjacentHTML("beforeend", entries.map(e => {
       const email = e.userEmail || "";
       if (email && !userIcons[email]) userIcons[email] = email[0].toUpperCase();
+      const entryDate = new Date(e.recordedAt);
+      const dateLabel = entryDate.toLocaleDateString();
+      const createdAt = e.createdAt ? new Date(e.createdAt) : null;
+      const isBackdated = createdAt && Math.abs(createdAt.getTime() - entryDate.getTime()) > 86400000;
+      const timeLabel = isBackdated
+        ? `<span class="text-xs text-slate-400 mt-1" title="Logged ${timeAgo(e.createdAt)}">${dateLabel}</span>`
+        : `<span class="text-xs text-slate-400 mt-1">${timeAgo(e.recordedAt)}</span>`;
       return e.type === "redemption"
         ? `<div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center gap-4">
             <div class="h-12 w-12 rounded-full bg-amber-100 flex items-center justify-center text-xl shrink-0 font-bold text-amber-600">${userIcons[e.userEmail]}</div>
@@ -723,7 +1093,7 @@ async function loadMoreChronicle() {
             </div>
             <div class="text-right shrink-0">
               ${e.cost != null ? `<span class="font-bold text-amber-500 bg-amber-50 px-2 py-1 rounded-lg text-sm">${e.cost} pts</span>` : '<span class="font-bold text-green-500 bg-green-50 px-2 py-1 rounded-lg text-sm">Free</span>'}
-              <p class="text-xs text-slate-400 mt-1">${timeAgo(e.recordedAt)}</p>
+              ${timeLabel}
             </div>
           </div>`
         : `<div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center gap-4">
@@ -735,7 +1105,7 @@ async function loadMoreChronicle() {
             <div class="text-right shrink-0">
               <span class="font-bold text-green-500 bg-green-50 px-2 py-1 rounded-lg text-sm">+${e.amount} ${escapeHtml(e.unit || "")}</span>
               ${e.currencyEarned ? `<p class="text-xs font-bold text-amber-600 mt-0.5">+${e.currencyEarned} pts</p>` : ""}
-              <p class="text-xs text-slate-400 mt-1">${timeAgo(e.recordedAt)}</p>
+              ${timeLabel}
             </div>
           </div>`;
     }).join(""));
@@ -745,10 +1115,12 @@ async function loadMoreChronicle() {
 
 function setupChronicleInfiniteScroll() {
   if (chronicleObserver) chronicleObserver.disconnect();
+  const feed = document.getElementById("chronicle-feed");
+  if (!feed) return;
   const sentinel = document.createElement("div");
   sentinel.id = "chronicle-sentinel";
   sentinel.className = "h-4";
-  document.getElementById("chronicle-feed").after(sentinel);
+  feed.appendChild(sentinel);
   chronicleObserver = new IntersectionObserver(async (entries) => {
     if (entries[0].isIntersecting) {
       await loadMoreChronicle();
@@ -784,6 +1156,8 @@ function wizardGoTo(step) {
     el.classList.add("hidden");
   });
   document.getElementById("wizard-step-" + step).classList.remove("hidden");
+  const label = document.getElementById("wizard-step-label");
+  if (label) label.textContent = `Step ${step} of 4`;
   document.querySelectorAll(".step-indicator").forEach(el => {
     const s = parseInt(el.dataset.step);
     const bar = el.querySelector("div");
@@ -813,7 +1187,26 @@ function wizardGoTo(step) {
 }
 
 function wizardNext() {
-  if (wizardCurrentStep < 4) wizardGoTo(wizardCurrentStep + 1);
+  // Validate current step before advancing
+  if (wizardCurrentStep === 1) {
+    const title = document.getElementById("challenge-title").value.trim();
+    if (!title) {
+      showToast("Required", "Please enter a challenge title before continuing.", "error");
+      return;
+    }
+  }
+  if (wizardCurrentStep === 2) {
+    const goals = document.querySelectorAll(".goal-field .goal-desc");
+    const hasEmpty = Array.from(goals).some(g => !g.value.trim());
+    if (hasEmpty) {
+      showToast("Required", "Please fill in all goal descriptions or remove empty goals.", "error");
+      return;
+    }
+  }
+  if (wizardCurrentStep < 4) {
+    unsavedWizardChanges = true;
+    wizardGoTo(wizardCurrentStep + 1);
+  }
 }
 
 function wizardPrev() {
@@ -875,9 +1268,18 @@ function toggleActivityFields(selectEl) {
   }
 }
 
+function focusModal(modalId) {
+  const modal = document.getElementById(modalId);
+  if (!modal) return;
+  const firstInput = modal.querySelector("input, select, button, textarea");
+  if (firstInput) setTimeout(() => firstInput.focus(), 100);
+}
+
 function showCreateChallengeForm() {
   editChallengeData = null;
+  unsavedWizardChanges = false;
   document.getElementById("challenge-modal-title").textContent = "Create Challenge";
+  focusModal("challenge-modal");
   document.getElementById("challenge-submit-btn").textContent = "Create";
   document.getElementById("challenge-edit-id").value = "";
   document.getElementById("challenge-title").value = "";
@@ -905,6 +1307,8 @@ function showEditChallengeForm(challengeId) {
   if (!c) return;
 
   editChallengeData = c;
+  unsavedWizardChanges = false;
+  focusModal("challenge-modal");
   document.getElementById("challenge-modal-title").textContent = "Edit Challenge";
   document.getElementById("challenge-submit-btn").textContent = "Save Changes";
   document.getElementById("challenge-edit-id").value = c.id;
@@ -944,9 +1348,18 @@ function showEditChallengeForm(challengeId) {
 }
 
 function closeChallengeModal() {
-  document.getElementById("challenge-modal").classList.add("hidden");
-  editChallengeData = null;
-  wizardCurrentStep = 1;
+  if (unsavedWizardChanges) {
+    showConfirmModal("You have unsaved changes. Are you sure you want to discard them?", () => {
+      document.getElementById("challenge-modal").classList.add("hidden");
+      editChallengeData = null;
+      wizardCurrentStep = 1;
+      unsavedWizardChanges = false;
+    });
+  } else {
+    document.getElementById("challenge-modal").classList.add("hidden");
+    editChallengeData = null;
+    wizardCurrentStep = 1;
+  }
 }
 
 function addGoalField(goal) {
@@ -1002,9 +1415,15 @@ function addGoalField(goal) {
 
 function removeGoalField(btn) {
   const field = btn.closest('.goal-field');
-  if (field.dataset.editId && !confirm('Removing this goal will delete all past progress logs when saved. Are you sure?')) return;
-  field.remove();
-  refreshActivityGoalCheckboxes();
+  if (field.dataset.editId) {
+    showConfirmModal("Removing this goal will delete all past progress logs when saved. Are you sure?", () => {
+      field.remove();
+      refreshActivityGoalCheckboxes();
+    });
+  } else {
+    field.remove();
+    refreshActivityGoalCheckboxes();
+  }
 }
 
 function toggleGoalAdvanced(btn) {
@@ -1165,6 +1584,7 @@ addGoalField = function(goal) {
 
 async function submitChallenge(event) {
   event.preventDefault();
+  const btn = document.getElementById("challenge-submit-btn");
   const editId = document.getElementById("challenge-edit-id").value;
   const title = document.getElementById("challenge-title").value;
   const description = document.getElementById("challenge-description").value;
@@ -1261,12 +1681,21 @@ async function submitChallenge(event) {
     body: JSON.stringify(body),
   });
 
+  setLoading(btn, true, editId ? "Save Changes" : "Create");
+  const res = await apiFetch(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  setLoading(btn, false);
+
   if (res.ok) {
     closeChallengeModal();
     loadAllData();
+    showToast("Saved", editId ? "Challenge updated!" : "Challenge created!", "success");
   } else {
     const data = await res.json().catch(() => ({}));
-    alert(data.error || "Failed to save challenge");
+    showToast("Error", data.error || "Failed to save challenge", "error");
   }
 }
 
@@ -1332,7 +1761,7 @@ function renderQuestList() {
     const balance = p ? (p.currencyBalance || 0) : 0;
     const currencyName = p ? p.currencyName : (c.currencyName || null);
     return `
-      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 cursor-pointer" onclick="showProgress('${c.id}')">
+      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all" onclick="showProgress('${c.id}')">
         <div class="flex items-center gap-3">
           <div class="h-10 w-10 rounded-xl bg-indigo-100 flex items-center justify-center text-xl shrink-0">${emoji}</div>
           <div class="flex-1 min-w-0">
@@ -1344,8 +1773,8 @@ function renderQuestList() {
             ${currencyName ? `<p class="text-xs font-semibold text-amber-600 mt-0.5">💰 ${balance} ${escapeHtml(currencyName)}</p>` : ""}
           </div>
           <div class="flex items-center gap-1">
-            ${isCreator ? `<button onclick="event.stopPropagation(); showEditChallengeForm('${c.id}')" class="text-slate-400 hover:text-indigo-600 p-1" title="Edit">✏️</button>` : ""}
-            ${isCreator ? `<button onclick="event.stopPropagation(); showDeleteChallengeConfirm('${c.id}', '${escapeHtml(c.title)}')" class="text-slate-400 hover:text-red-500 p-1" title="Delete">🗑️</button>` : ""}
+            ${isCreator ? `<button onclick="event.stopPropagation(); showEditChallengeForm('${c.id}')" class="text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50 transition-colors" title="Edit">✏️</button>` : ""}
+            ${isCreator ? `<button onclick="event.stopPropagation(); showDeleteChallengeConfirm('${c.id}', '${escapeHtml(c.title)}')" class="text-slate-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors" title="Delete">🗑️</button>` : ""}
             <span class="text-slate-400">›</span>
           </div>
         </div>
@@ -1367,7 +1796,7 @@ async function showProgress(challengeId) {
   let html = `<div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mt-4">`;
   html += `<div class="flex items-center justify-between mb-3">
     <h3 class="text-xl font-bold text-slate-800">${escapeHtml(challenge.title)}</h3>
-    <button onclick="closeProgress()" class="text-slate-500 text-sm font-bold">Close</button>
+    <button onclick="closeProgress()" class="py-2 px-4 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-colors text-sm">Close</button>
   </div>`;
   html += `<p class="text-sm text-slate-600 mb-4">${escapeHtml(challenge.description)}</p>`;
 
@@ -1464,6 +1893,7 @@ async function renderFamilyProgress(challenge, panelHtml, container) {
 
 function makeChallengeActivityForms(challengeId, activities, goals) {
   const goalMap = {};
+  const today = new Date().toISOString().split("T")[0];
   if (goals) goals.forEach(g => { goalMap[g.id] = g; });
   return activities.map(a => {
     const isDistTime = a.activityType === "DistanceAndTime";
@@ -1489,6 +1919,7 @@ function makeChallengeActivityForms(challengeId, activities, goals) {
             class="amount-input w-full py-2 px-3 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
         `}
         <div class="flex gap-2">
+          <input type="date" class="act-date w-28 py-2 px-3 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm" max="${today}" value="${today}">
           <input type="text" placeholder="Notes (optional)" class="notes-input flex-1 py-2 px-3 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
           <button type="submit" class="py-2 px-5 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition-colors text-sm whitespace-nowrap shadow-sm">Log Activity</button>
         </div>
@@ -1538,11 +1969,13 @@ function switchMember(el) {
 async function logActivity(challengeId, activityId, event) {
   event.preventDefault();
   const form = event.target;
+  const btn = form.querySelector("button[type='submit']");
 
   const distInput = form.querySelector(".dist-input");
   const timeInput = form.querySelector(".time-input");
   const amountInput = form.querySelector(".amount-input");
   const notesInput = form.querySelector(".notes-input");
+  const dateInput = form.querySelector(".act-date");
 
   const isDistTime = distInput && timeInput;
   let amount, timeAmount;
@@ -1561,14 +1994,19 @@ async function logActivity(challengeId, activityId, event) {
   if (notesInput && notesInput.value.trim()) {
     body.notes = notesInput.value.trim();
   }
+  if (dateInput && dateInput.value) body.occurredAt = new Date(dateInput.value + "T12:00:00").toISOString();
 
+  setLoading(btn, true);
   const res = await apiFetch(`/api/challenges/${challengeId}/activities/${activityId}/log`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+  setLoading(btn, false);
+
   if (res.ok) {
     const data = await res.json();
+    if (navigator.vibrate) navigator.vibrate(10);
     if (data.surprise) {
       showToast(data.surprise.title, data.surprise.description, "surprise");
     }
@@ -1580,7 +2018,7 @@ async function logActivity(challengeId, activityId, event) {
     loadAllData();
   } else {
     const data = await res.json().catch(() => ({}));
-    alert(data.error || "Failed to log activity");
+    showToast("Error", data.error || "Failed to log activity", "error");
   }
 }
 
@@ -1596,6 +2034,10 @@ async function renderActivityLog(challengeId) {
     const entryUserEmail = e.userEmail || "unknown";
     if (!userEmojis[entryUserEmail]) userEmojis[entryUserEmail] = entryUserEmail[0].toUpperCase();
     const isOwn = currentUserEmail && e.userEmail && e.userEmail === currentUserEmail;
+    const entryDate = new Date(e.recordedAt);
+    const dateStr = entryDate.toISOString().split("T")[0];
+    const createdAt = e.createdAt ? new Date(e.createdAt) : null;
+    const isBackdated = createdAt && Math.abs(createdAt.getTime() - entryDate.getTime()) > 86400000;
     html += `<div class="flex items-center gap-2 py-2 text-sm" data-entry-id="${e.id}" data-challenge-id="${challengeId}" data-activity-id="${e.activityId || ""}">
       <span class="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center text-xs font-bold text-indigo-600 shrink-0">${userEmojis[entryUserEmail]}</span>
       <span class="font-semibold text-slate-700">${escapeHtml(entryUserEmail.split('@')[0])}</span>
@@ -1604,7 +2046,7 @@ async function renderActivityLog(challengeId) {
       ${e.currencyEarned ? `<span class="text-amber-600 font-medium text-xs">+${e.currencyEarned} pts</span>` : ""}
       ${e.timeAmount ? `<span class="text-slate-400 text-xs">time: ${e.timeAmount} min</span>` : ""}
       ${e.notes ? `<span class="text-slate-400 italic text-xs">— ${escapeHtml(e.notes)}</span>` : ""}
-      <span class="text-slate-400 text-xs ml-auto">${timeAgo(e.recordedAt)}</span>
+      <span class="text-slate-400 text-xs ml-auto entry-date" title="${isBackdated ? `Logged ${timeAgo(e.createdAt)}` : ""}">${dateStr}</span>
       ${isOwn ? `<button onclick="editLogEntry(this)" class="text-slate-300 hover:text-indigo-500 ml-1 text-xs" title="Edit">✏️</button>` : ""}
     </div>`;
   }
@@ -1622,17 +2064,21 @@ function editLogEntry(btn) {
   const amountSpan = row.querySelector(".text-green-600");
   const notesSpan = row.querySelector(".italic");
   const timeSpan = row.querySelector(".text-slate-400.text-xs");
+  const dateSpan = row.querySelector(".entry-date");
 
   const currentAmount = amountSpan ? parseFloat(amountSpan.textContent.replace(/[+\s]/g, "").split(" ")[0]) || 0 : 0;
   const currentNotes = notesSpan ? notesSpan.textContent.replace(/^—\s*/, "").trim() : "";
   const currentTime = timeSpan && timeSpan.textContent.startsWith("time:") ? parseFloat(timeSpan.textContent.replace("time:", "")) || null : null;
+  const currentDate = dateSpan ? dateSpan.textContent.trim() : new Date().toISOString().split("T")[0];
 
+  const today = new Date().toISOString().split("T")[0];
   row.innerHTML = `
-    <form onsubmit="saveLogEntryEdit('${challengeId}', '${activityId}', '${entryId}', event)" class="flex items-center gap-2 py-1 w-full">
+    <form onsubmit="saveLogEntryEdit('${challengeId}', '${activityId}', '${entryId}', event)" class="flex items-center gap-2 py-1 w-full flex-wrap">
       <input type="number" inputmode="decimal" step="any" value="${currentAmount}" required
         class="edit-amount w-16 py-1 px-1.5 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-xs">
       ${currentTime !== null ? `<input type="number" inputmode="decimal" step="any" value="${currentTime}" 
         class="edit-time w-16 py-1 px-1.5 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-xs" placeholder="Time">` : ""}
+      <input type="date" class="edit-date w-28 py-1 px-1.5 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-xs" max="${today}" value="${currentDate}">
       <input type="text" value="${escapeHtml(currentNotes)}" placeholder="Notes"
         class="edit-notes flex-1 py-1 px-1.5 bg-white rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-xs">
       <button type="submit" class="py-1 px-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition-colors text-xs">Save</button>
@@ -1649,21 +2095,26 @@ function cancelLogEntryEdit(btn) {
 async function saveLogEntryEdit(challengeId, activityId, entryId, event) {
   event.preventDefault();
   const form = event.target;
+  const btn = form.querySelector("button[type='submit']");
   const amount = parseFloat(form.querySelector(".edit-amount").value);
   if (isNaN(amount)) return;
 
   const timeInput = form.querySelector(".edit-time");
   const notesInput = form.querySelector(".edit-notes");
+  const dateInput = form.querySelector(".edit-date");
 
   const body = { amount };
   if (timeInput && timeInput.value) body.timeAmount = parseFloat(timeInput.value);
   if (notesInput && notesInput.value.trim()) body.notes = notesInput.value.trim();
+  if (dateInput && dateInput.value) body.occurredAt = new Date(dateInput.value + "T12:00:00").toISOString();
 
+  setLoading(btn, true);
   const res = await apiFetch(`/api/challenges/${challengeId}/activities/${activityId}/log/${entryId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+  setLoading(btn, false);
 
   if (res.ok) {
     const data = await res.json();
@@ -1674,7 +2125,7 @@ async function saveLogEntryEdit(challengeId, activityId, entryId, event) {
     loadAllData();
   } else {
     const data = await res.json().catch(() => ({}));
-    alert(data.error || "Failed to update entry");
+    showToast("Error", data.error || "Failed to update entry", "error");
   }
 }
 
@@ -1706,10 +2157,10 @@ async function loadTreasury() {
       <h4 class="font-bold text-slate-800 mb-2">${escapeHtml(c.title)}</h4>`;
     for (const p of c.prizes) {
       const costStr = p.cost != null ? ` (Cost: ${p.cost} ${c.currencyName ? escapeHtml(c.currencyName) : "pts"})` : "";
-      html += `<div class="flex items-center justify-between py-2 border-t border-slate-100">
-        <span>🏅 ${escapeHtml(p.description)}${costStr}</span>
-        ${p.hasQR ? `<button onclick="generateRedemption('${c.id}', '${p.id}')" class="text-xs font-bold bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-xl hover:bg-indigo-200 transition-colors">QR</button>` : ""}
-      </div>`;
+    html += `<div class="flex items-center justify-between py-2 border-t border-slate-100">
+      <span>🏅 ${escapeHtml(p.description)}${costStr}</span>
+      ${p.hasQR ? `<button onclick="generateRedemption('${c.id}', '${p.id}')" class="text-xs font-bold bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-xl hover:bg-indigo-200 transition-colors">QR</button>` : `<span class="text-xs text-slate-400 bg-slate-100 px-2 py-1 rounded-lg">No QR</span>`}
+    </div>`;
     }
     html += `</div>`;
   }
@@ -1758,7 +2209,7 @@ async function renderPrizes(challenge) {
     const costStr = p.cost != null ? ` (Cost: ${p.cost} ${challenge.currencyName ? escapeHtml(challenge.currencyName) : "pts"})` : "";
     html += `<div class="flex items-center justify-between py-2 border-t border-slate-100">
       <span>🏅 ${escapeHtml(p.description)}${costStr}</span>
-      ${p.hasQR ? `<button onclick="generateRedemption('${challenge.id}', '${p.id}')" class="text-xs font-bold bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-xl hover:bg-indigo-200 transition-colors">QR</button>` : ""}
+      ${p.hasQR ? `<button onclick="generateRedemption('${challenge.id}', '${p.id}')" class="text-xs font-bold bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-xl hover:bg-indigo-200 transition-colors">QR</button>` : `<span class="text-xs text-slate-400 bg-slate-100 px-2 py-1 rounded-lg">No QR</span>`}
     </div>`;
   }
   html += `</div>`;
@@ -1803,8 +2254,9 @@ function showQrModal(prizeDescription, cost, currencyName, qrUrl) {
         ${costStr ? `<div class="text-sm text-slate-500 mb-3">${costStr}</div>` : ""}
         <img src="${qrUrl}" alt="QR Code" class="mx-auto w-48 h-48 image-rendering-pixelated">
       </div>
-      <div class="flex gap-3 justify-center mt-4">
+      <div class="flex gap-3 justify-center mt-4 flex-wrap">
         <button onclick="printQr()" class="py-3 px-6 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors">🖨️ Print</button>
+        <button onclick="downloadQrPng()" class="py-3 px-6 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition-colors">⬇️ Download</button>
         <button onclick="closeQrModal()" class="py-3 px-6 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-colors">Close</button>
       </div>
     </div>
@@ -1831,7 +2283,7 @@ function printQr() {
   if (!win) { alert("Please allow popups for printing"); return; }
   win.document.write(`
     <!DOCTYPE html>
-    <html>
+    <html lang="en">
     <head><title>Print Reward Coupon</title>
     <style>
       body { font-family: system-ui, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #fff; }
@@ -1848,6 +2300,19 @@ function printQr() {
   `);
   win.document.close();
   setTimeout(() => { win.print(); }, 500);
+}
+
+function downloadQrPng() {
+  const modal = document.getElementById("qr-modal");
+  if (!modal) return;
+  const qrUrl = modal.dataset.qrUrl;
+  if (!qrUrl) return;
+  const a = document.createElement("a");
+  a.href = qrUrl;
+  a.download = "reward-qr.png";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 async function processRedemption(challengeId, prizeId) {
@@ -1912,6 +2377,7 @@ async function confirmRedemption(challengeId, prizeId, event) {
     const infoDiv = document.getElementById("redeem-prize-info");
     infoDiv.innerHTML = `<div class="text-center p-4 bg-green-50 rounded-xl font-bold text-green-700">✅ Redeemed! ${escapeHtml(data.prizeDescription)} for ${data.cost} pts.</div>`;
     document.getElementById("redeem-form").classList.add("hidden");
+    if (navigator.vibrate) navigator.vibrate(10);
     showToast("Prize Redeemed", data.prizeDescription, "success");
     loadAllData();
   } else {
@@ -1939,17 +2405,20 @@ async function openScanner() {
   modal.id = "scanner-modal";
   modal.className = "qr-modal-overlay";
   modal.innerHTML = `
-    <div class="qr-modal-content max-w-[500px]">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="text-lg font-bold text-slate-800">Scan QR Code</h3>
-        <button onclick="closeScanner()" class="text-slate-500 text-2xl leading-none">&times;</button>
+      <div class="qr-modal-content max-w-[500px]">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-bold text-slate-800">Scan QR Code</h3>
+          <button onclick="closeScanner()" class="text-slate-500 text-2xl leading-none">&times;</button>
+        </div>
+        <div class="scanner-view">
+          <video id="scanner-video" autoplay playsinline muted></video>
+          <canvas id="scanner-canvas" class="hidden"></canvas>
+          <div id="scanner-status" class="text-sm text-white">Position the QR code in the camera view...</div>
+        </div>
+        <div class="mt-3 text-center">
+          <button type="button" onclick="showManualClaimEntry()" class="text-xs font-medium text-indigo-600 hover:text-indigo-800">Enter code manually</button>
+        </div>
       </div>
-      <div class="scanner-view">
-        <video id="scanner-video" autoplay playsinline muted></video>
-        <canvas id="scanner-canvas" class="hidden"></canvas>
-        <div id="scanner-status" class="text-sm text-white">Position the QR code in the camera view...</div>
-      </div>
-    </div>
   `;
   document.body.appendChild(modal);
   document.getElementById("scanner-status").textContent = "Requesting camera...";
@@ -1965,6 +2434,42 @@ async function openScanner() {
     scanFrame();
   } catch {
     document.getElementById("scanner-status").textContent = "❌ Camera not available. Allow camera access and try again.";
+  }
+}
+
+function showManualClaimEntry() {
+  closeScanner();
+  const modal = document.createElement("div");
+  modal.id = "manual-claim-modal";
+  modal.className = "qr-modal-overlay";
+  modal.innerHTML = `
+    <div class="qr-modal-content">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-lg font-bold text-slate-800">Enter Claim Code</h3>
+        <button onclick="this.closest('#manual-claim-modal').remove()" class="text-slate-500 text-2xl leading-none">&times;</button>
+      </div>
+      <p class="text-xs text-slate-500 mb-3">Paste a claim URL or code (e.g. challengeId:prizeId)</p>
+      <form onsubmit="manualClaimSubmit(event)" class="flex flex-col gap-3">
+        <input type="text" id="manual-claim-input" placeholder="challengeId:prizeId" required
+          class="w-full py-3 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
+        <button type="submit" class="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors">Claim Prize</button>
+      </form>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+function manualClaimSubmit(event) {
+  event.preventDefault();
+  const input = document.getElementById("manual-claim-input");
+  if (!input) return;
+  const val = input.value.trim();
+  const parts = val.split(":");
+  if (parts.length === 2) {
+    document.getElementById("manual-claim-modal")?.remove();
+    processRedemption(parts[0], parts[1]);
+  } else {
+    showToast("Invalid Code", "Enter a code in format: challengeId:prizeId", "error");
   }
 }
 
@@ -2015,6 +2520,7 @@ async function loadFamilyDetail(familyId) {
   if (!res.ok) return;
   const family = await res.json();
   const detail = document.getElementById("family-detail");
+  const isOwner = family.members.some(m => m.userId === currentUserId && m.role === "Owner");
   detail.innerHTML = `
     <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 mt-3">
       <div class="flex items-center justify-between mb-2">
@@ -2031,7 +2537,24 @@ async function loadFamilyDetail(familyId) {
           <span class="text-xs text-slate-400 ml-auto">${escapeHtml(m.role)}</span>
         </div>
       `).join("")}
+      ${!isOwner ? `
+        <button onclick="leaveFamily('${familyId}')" class="w-full mt-3 py-2 bg-red-50 text-red-600 font-bold rounded-xl border border-red-200 hover:bg-red-100 transition-colors text-sm">Leave Family</button>
+      ` : ""}
     </div>
   `;
   detail.scrollIntoView({ behavior: "smooth" });
+}
+
+async function leaveFamily(familyId) {
+  showConfirmModal("Are you sure you want to leave this family?", async () => {
+    const res = await apiFetch(`/api/families/${familyId}/members/${currentUserId}`, { method: "DELETE" });
+    if (res.ok) {
+      showToast("Left Family", "You are no longer a member.", "success");
+      document.getElementById("family-detail").innerHTML = "";
+      loadFamilies();
+    } else {
+      const data = await res.json().catch(() => ({}));
+      showToast("Error", data.error || "Failed to leave family", "error");
+    }
+  });
 }

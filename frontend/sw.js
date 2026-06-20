@@ -1,5 +1,6 @@
-const CACHE_NAME = "glasstrut-v3";
-const CDN_CACHE = "glasstrut-cdn-v1";
+const CACHE_NAME = "glasstrut-v4";
+const CDN_CACHE = "glasstrut-cdn-v2";
+const API_CACHE = "glasstrut-api-v1";
 
 const STATIC_FILES = [
   "./",
@@ -28,7 +29,7 @@ self.addEventListener("activate", (event) => {
     caches.keys().then((keys) =>
       Promise.all(
         keys
-          .filter((k) => k !== CACHE_NAME && k !== CDN_CACHE)
+          .filter((k) => k !== CACHE_NAME && k !== CDN_CACHE && k !== API_CACHE)
           .map((k) => caches.delete(k))
       )
     )
@@ -51,6 +52,38 @@ self.addEventListener("fetch", (event) => {
             .catch(() => cached);
           return cached || fetchPromise;
         })
+      )
+    );
+    return;
+  }
+
+  // API requests: network-first with cache fallback
+  if (url.pathname.startsWith("/api/")) {
+    event.respondWith(
+      caches.open(API_CACHE).then((cache) =>
+        fetch(event.request)
+          .then((response) => {
+            if (response.ok && event.request.method === "GET") {
+              cache.put(event.request, response.clone());
+            }
+            return response;
+          })
+          .catch(() =>
+            cache.match(event.request).then((cached) => {
+              if (cached) return cached;
+              // For non-GET API requests, return a simple offline response
+              if (event.request.method !== "GET") {
+                return new Response(JSON.stringify({ ok: true, _queued: true }), {
+                  status: 200,
+                  headers: { "Content-Type": "application/json" },
+                });
+              }
+              return new Response(
+                JSON.stringify({ error: "You are offline" }),
+                { status: 503, headers: { "Content-Type": "application/json" } }
+              );
+            })
+          )
       )
     );
     return;

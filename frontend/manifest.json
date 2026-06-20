@@ -4,7 +4,7 @@
   "description": "Family challenges & rewards",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#f8fafc",
+  "background_color": "#4f46e5",
   "theme_color": "#4f46e5",
   "categories": ["lifestyle", "family", "productivity"],
   "icons": [
@@ -13,6 +13,20 @@
       "sizes": "192x192 512x512",
       "type": "image/svg+xml",
       "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "New Challenge",
+      "short_name": "New",
+      "description": "Create a new challenge",
+      "url": "./index.html?action=new-challenge"
+    },
+    {
+      "name": "Scan QR",
+      "short_name": "Scan",
+      "description": "Scan a QR code to redeem a prize",
+      "url": "./index.html?action=scan"
     }
   ]
 }
