@@ -533,6 +533,8 @@ function showDashboard(email) {
   loadFamilies();
   loadAllData();
   switchTab("home");
+  showOnboarding(); // init nav indicator
+  switchTab("home");
 
   const params = new URLSearchParams(window.location.search);
   const claimParam = params.get("claim");
@@ -569,6 +571,12 @@ function clearAuthError() {
 }
 
 function toggleAuthForm() {
+  const form = document.getElementById("login-form");
+  form.classList.remove("animate-fade-in");
+  // Force reflow to restart animation
+  void form.offsetWidth;
+  form.classList.add("animate-fade-in");
+
   isRegisterMode = !isRegisterMode;
   const title = document.getElementById("auth-form-title");
   const btn = document.getElementById("auth-submit-btn");
@@ -619,6 +627,16 @@ function switchTab(tab) {
     if (isActive) btn.setAttribute("aria-current", "page");
     else btn.removeAttribute("aria-current");
   });
+  // Slide nav indicator
+  const activeBtn = document.querySelector(`.tab-btn[data-tab="${tab}"]`);
+  const indicator = document.getElementById("nav-indicator");
+  if (activeBtn && indicator) {
+    const nav = document.getElementById("bottom-nav");
+    const navRect = nav.getBoundingClientRect();
+    const btnRect = activeBtn.getBoundingClientRect();
+    indicator.style.width = btnRect.width * 0.6 + "px";
+    indicator.style.transform = `translateX(${btnRect.left - navRect.left + btnRect.width * 0.2}px)`;
+  }
   if (tab === "treasury") loadTreasury();
   if (tab === "home") refreshPoints();
 }
@@ -635,6 +653,11 @@ document.addEventListener("keydown", (e) => {
     if (confirmModal) { confirmModal.remove(); return; }
     closeQrModal();
     closeScanner();
+    // Close progress panel if open
+    const progressPanel = document.getElementById("progress-panel");
+    if (progressPanel && !progressPanel.classList.contains("pointer-events-none")) {
+      closeProgress();
+    }
   }
 });
 
@@ -759,6 +782,18 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("offline-banner")?.classList.remove("hidden");
   });
 
+  // Scroll active input into view when mobile keyboard opens
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", () => {
+      if (window.visualViewport.height < window.innerHeight * 0.8) {
+        const active = document.activeElement;
+        if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT")) {
+          setTimeout(() => active.scrollIntoView({ block: "center", behavior: "smooth" }), 100);
+        }
+      }
+    });
+  }
+
   // Replay any pending queue on page load
   replayPendingQueue();
 });
@@ -799,8 +834,15 @@ async function loadFamilies() {
   const list = document.getElementById("family-list");
   if (cachedFamilies.length === 0) {
     list.innerHTML = "<p class='text-sm text-slate-500'>No families yet. Create or join one above.</p>";
+    document.getElementById("family-badge").classList.add("hidden");
     return;
   }
+  // Populate home tab family badge
+  const badgeEl = document.getElementById("family-badge");
+  badgeEl.classList.remove("hidden");
+  badgeEl.innerHTML = cachedFamilies.map(f =>
+    `<button onclick="switchTab('profile')" class="inline-flex items-center gap-1.5 text-xs font-semibold bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-full hover:bg-indigo-100 transition-colors">🏠 ${escapeHtml(f.name)}</button>`
+  ).join("");
   list.innerHTML = cachedFamilies.map(f => `
     <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 cursor-pointer" onclick="loadFamilyDetail('${f.id}')">
       <div class="font-bold text-slate-800">${escapeHtml(f.name)}</div>
@@ -1143,6 +1185,11 @@ async function refreshPoints() {
   const entries = Object.entries(currencies);
   const symbol = entries.length === 1 ? ` ${entries[0][0]}` : entries.length > 1 ? " pts" : " 🍦";
   document.getElementById("user-points").textContent = total + symbol;
+  document.getElementById("user-points").title = entries.length > 1
+    ? "Total across all challenge currencies"
+    : entries.length === 1
+    ? `${entries[0][0]}: ${entries[0][1]}`
+    : "No currencies — points from all challenges";
 }
 
 // ========== CHALLENGE MODAL / WIZARD ==========
@@ -1397,9 +1444,10 @@ function addGoalField(goal) {
         <span class="advanced-arrow text-xs">▸</span>
       </button>
       <div class="goal-advanced hidden mt-2 pl-2 border-l-2 border-slate-200">
-        <label class="flex items-center gap-2 text-sm text-slate-600">
+        <label class="flex items-center gap-2 text-sm text-slate-600 bg-purple-50 border border-purple-200 rounded-lg px-3 py-1.5 -ml-2">
           <input type="checkbox" class="goal-hidden" ${isHidden ? "checked" : ""}>
-          Hidden goal — surprises user on completion
+          <span class="font-medium text-purple-700">🎁 Hidden</span>
+          <span class="text-purple-600">— surprises user on completion</span>
         </label>
         <label class="goal-perentry-group flex items-center gap-2 text-sm text-slate-600 mt-1 ${(goal && goal.type && goal.type !== 'Achievement') ? 'hidden' : ''}">
           <input type="checkbox" class="goal-perentry" ${(goal && goal.isPerEntry) ? "checked" : ""}>
@@ -1567,7 +1615,8 @@ function buildPrizeGoalDropdown(prize) {
       const desc = g.querySelector(".goal-desc")?.value || `Goal ${i + 1}`;
       const editId = g.dataset.editId;
       const selected = prize && prize.challengeGoalId && editId === prize.challengeGoalId ? "selected" : "";
-      html += `<option value="goal-${i}" ${selected}>${escapeHtml(desc)}</option>`;
+      const shortDesc = desc.length > 35 ? desc.slice(0, 32) + "…" : desc;
+      html += `<option value="goal-${i}" ${selected}>${escapeHtml(shortDesc)}</option>`;
     });
   }
   return html;
@@ -1773,7 +1822,7 @@ function renderQuestList() {
               <span class="font-bold text-slate-800 truncate">${escapeHtml(c.title)}</span>
               <span class="text-xs font-bold ${c.type === 'SelfOnly' ? 'text-orange-500 bg-orange-50' : 'text-blue-500 bg-blue-50'} px-2 py-0.5 rounded-full shrink-0">${c.type === "SelfOnly" ? "Personal" : "Family"}</span>
             </div>
-            <p class="text-xs text-slate-500 mt-0.5">${summary} &middot; ${escapeHtml(c.description)}</p>
+            <p class="text-xs text-slate-500 mt-0.5 max-w-prose">${summary} &middot; ${escapeHtml(c.description)}</p>
             ${currencyName ? `<p class="text-xs font-semibold text-amber-600 mt-0.5">💰 ${balance} ${escapeHtml(currencyName)}</p>` : ""}
           </div>
           <div class="flex items-center gap-1">
@@ -1802,7 +1851,7 @@ async function showProgress(challengeId) {
     <h3 class="text-xl font-bold text-slate-800">${escapeHtml(challenge.title)}</h3>
     <button onclick="closeProgress()" class="py-2 px-4 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-colors text-sm">Close</button>
   </div>`;
-  html += `<p class="text-sm text-slate-600 mb-4">${escapeHtml(challenge.description)}</p>`;
+  html += `<p class="text-sm text-slate-600 mb-4 max-w-prose">${escapeHtml(challenge.description)}</p>`;
 
   if (isFamily) {
     await renderFamilyProgress(challenge, html, container);
@@ -1811,12 +1860,26 @@ async function showProgress(challengeId) {
   }
 
   container.scrollIntoView({ behavior: "smooth" });
+
+  // Slide panel in
+  document.getElementById("progress-panel").classList.remove("pointer-events-none");
+  document.getElementById("progress-panel-content").classList.remove("translate-x-full");
+  document.getElementById("progress-overlay").classList.remove("opacity-0", "pointer-events-none");
+  document.getElementById("progress-overlay").classList.add("pointer-events-auto");
 }
 
 function closeProgress() {
   currentChallengeId = null;
   currentMemberId = null;
-  document.getElementById("challenge-progress").innerHTML = "";
+  // Slide panel out
+  document.getElementById("progress-panel-content").classList.add("translate-x-full");
+  document.getElementById("progress-overlay").classList.add("opacity-0", "pointer-events-none");
+  document.getElementById("progress-overlay").classList.remove("pointer-events-auto");
+  // Clear content after transition
+  setTimeout(() => {
+    document.getElementById("progress-panel").classList.add("pointer-events-none");
+    document.getElementById("challenge-progress").innerHTML = "";
+  }, 300);
 }
 
 async function renderSelfProgress(challenge, panelHtml, container) {
@@ -2564,4 +2627,27 @@ async function leaveFamily(familyId) {
       showToast("Error", data.error || "Failed to leave family", "error");
     }
   });
+}
+
+function toggleCollapsible(btn) {
+  const content = btn.nextElementSibling;
+  const arrow = btn.querySelector(".collapse-arrow");
+  const isOpen = content.style.maxHeight !== "0px" && content.style.maxHeight !== "";
+  if (isOpen) {
+    content.style.maxHeight = "0px";
+    if (arrow) arrow.style.transform = "rotate(0deg)";
+  } else {
+    content.style.maxHeight = content.scrollHeight + "px";
+    if (arrow) arrow.style.transform = "rotate(180deg)";
+  }
+}
+
+function showOnboarding() {
+  if (localStorage.getItem("onboardingShown")) return;
+  document.getElementById("onboarding-overlay").classList.remove("hidden");
+  localStorage.setItem("onboardingShown", "1");
+}
+
+function dismissOnboarding() {
+  document.getElementById("onboarding-overlay").classList.add("hidden");
 }

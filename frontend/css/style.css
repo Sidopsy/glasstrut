@@ -102,4 +102,17 @@
   }
   body.dark-mode .tab-btn.text-slate-400 { color: #64748b; }
   body.dark-mode .skeleton { background: #334155; }
+
+/* Wizard row touch targets — minimum 44pt */
+.goal-field button,
+.goal-field input,
+.goal-field select,
+.challenge-activity-field input,
+.challenge-activity-field select,
+.challenge-activity-field button,
+.prize-field input,
+.prize-field select,
+.prize-field button {
+  min-height: 44px;
+}
 }

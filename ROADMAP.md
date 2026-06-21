@@ -126,7 +126,7 @@
 
 ## Phase 13 — UX Polish & Offline-First Client
 
-**Status:** In progress — 31 of 64 items checked, 1 optional skipped, 32 remaining.
+**Status:** In progress — 47 of 64 items checked, 1 optional skipped, 16 remaining.
 
 ### 13a — High-Severity UX Fixes (UX-REVIEW-V2)
 
@@ -157,25 +157,25 @@
 
 **Layout & Visual:**
 - [x] Add dark mode via `prefers-color-scheme: dark` CSS media query + `.dark-mode` class toggle (finding 1.2)
-- [ ] Expand content width to `max-w-2xl` on viewports >768px (findings 2.1, 7.3)
-- [ ] Add sliding underline indicator for active bottom-nav tab (finding 2.2)
+- [x] Expand content width to `max-w-2xl` on viewports >768px (findings 2.1, 7.3)
+- [x] Add sliding underline indicator for active bottom-nav tab (finding 2.2)
 - [x] Cap visible toasts at 3 with push-up stacking (finding 1.6)
 - [x] Reduce confetti particle count to 25 (finding 1.4)
 - [x] Audit all inputs for consistent `focus:ring-2 focus:ring-indigo-300 outline-none` styling (finding 5.3 — already present in most cases)
 
 **Navigation & Interaction:**
-- [ ] Move family management to collapsible sections or sub-page on Profile (finding 2.3)
-- [ ] Show "My Family" badge or quick-link on Home tab (finding 4.4)
-- [ ] Add lightweight onboarding coachmark overlay (check `localStorage` flag — finding 4.5)
+- [x] Move family management to collapsible sections or sub-page on Profile (finding 2.3)
+- [x] Show "My Family" badge or quick-link on Home tab (finding 4.4)
+- [x] Add lightweight onboarding coachmark overlay (check `localStorage` flag — finding 4.5)
 - [x] Add Escape key listener to close any open modal (finding 7.1)
 - [x] Add styled confirmation modal (`showConfirmModal()` replacing `confirm()`) for logout (finding 11.4)
 - [x] Handle session expiry gracefully: show toast + redirect to auth instead of instant reload (finding 11.3)
 - [x] Show pending offline queue count (`#pending-indicator` in top-right) when non-empty (finding 10.6)
 
 **Mobile UX:**
-- [ ] Listen to `window.visualViewport` resize events to scroll active input into view in modals (finding 6.5)
-- [ ] Increase minimum touch-target size on dynamic wizard rows to 44pt (findings 6.6, W4)
-- [ ] Make challenge detail slide in as a panel over the quest list instead of inline (finding 4.2)
+- [x] Listen to `window.visualViewport` resize events to scroll active input into view in modals (finding 6.5)
+- [x] Increase minimum touch-target size on dynamic wizard rows to 44pt (findings 6.6, W4)
+- [x] Make challenge detail slide in as a panel over the quest list instead of inline (finding 4.2)
 - [x] Add `navigator.vibrate(10)` on successful log/redeem events (finding 5.6)
 
 **Desktop UX:**
@@ -232,19 +232,19 @@
 ### 13d — Remaining Low-Severity Polish
 
 - [x] Add custom Tailwind theme config with named brand palette (finding 1.1 — `tailwind.config` block in index.html)
-- [ ] Constrain challenge descriptions with `max-w-prose` (finding 3.3)
+- [x] Constrain challenge descriptions with `max-w-prose` (finding 3.3)
 - [x] Add hover state differentiation on challenge cards (finding 7.2 — `hover:shadow-md hover:-translate-y-0.5 transition-all`)
 - [x] Replace `confirm()` for goal removal with styled modal (finding 5.5 — via `showConfirmModal()`)
 - [ ] Add 3-second "undo" toast after activity log (finding 5.7)
 - [x] Show "Updated Xm ago" instead of "Live" on stale chronicle items (finding H4 — switches after 24h)
 - [x] Add step counter label "Step 2 of 4" in wizard (finding W1)
-- [ ] Make "Hidden" goal checkbox more visible (finding W3)
-- [ ] Truncate goal descriptions in prize linked-goal dropdown (finding W5)
+- [x] Make "Hidden" goal checkbox more visible (finding W3 — purple bg with badge)
+- [x] Truncate goal descriptions in prize linked-goal dropdown (finding W5 — 35 char limit)
 - [x] Add sort to achievements list on Profile (finding P1 — newest first)
 - [x] Improve email validation regex (finding 5.2 — `/^[^\s@]+@[^\s@]+\.[^\s@]+$/`)
 - [x] Add basic password strength indicator on register (finding A2)
-- [ ] Add smooth fade/slide transition on auth form toggle (finding A4)
-- [ ] Show tooltip explaining 🍦 = total across all challenge currencies (finding H1)
+- [x] Add smooth fade/slide transition on auth form toggle (finding A4 — `animate-fade-in`)
+- [x] Show tooltip explaining 🍦 = total across all challenge currencies (finding H1 — `title` attribute dynamically set)
 - [ ] Consider using `createElement` + `textContent` instead of `innerHTML` for user data (finding 8.6)
 
 ### 13e — Backdated Entries & Extended Log Editing

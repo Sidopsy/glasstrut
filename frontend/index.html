@@ -102,7 +102,7 @@
     </div>
 
     <!-- HOME TAB -->
-    <div id="tab-home" class="block">
+    <div id="tab-home" class="block max-w-2xl mx-auto w-full">
       <header class="px-5 pt-12 pb-6 bg-white shadow-sm rounded-b-3xl">
         <div class="flex justify-between items-center">
           <div>
@@ -115,6 +115,8 @@
           </div>
         </div>
       </header>
+
+      <div id="family-badge" class="mt-3 px-5 hidden"></div>
 
       <section class="mt-8 px-5">
         <div class="flex justify-between items-baseline mb-3">
@@ -148,7 +150,7 @@
     </div>
 
     <!-- QUESTS TAB -->
-    <div id="tab-quests" class="hidden px-5 pt-8">
+    <div id="tab-quests" class="hidden px-5 pt-8 max-w-2xl mx-auto w-full">
       <div class="flex justify-between items-baseline mb-4">
         <h2 class="text-xl font-bold text-slate-800">Quests</h2>
         <button onclick="showCreateChallengeForm()" class="text-sm font-bold bg-indigo-600 text-white px-4 py-2 rounded-xl hover:bg-indigo-700 transition-colors">+ Create challenge</button>
@@ -156,11 +158,18 @@
       <div id="challenge-list" class="flex flex-col gap-3">
         <!-- populated by JS -->
       </div>
-      <div id="challenge-progress"></div>
+    </div>
+
+    <!-- Challenge detail slide-in panel -->
+    <div id="progress-panel" class="fixed inset-0 z-40 pointer-events-none">
+      <div id="progress-overlay" class="absolute inset-0 bg-black/30 opacity-0 transition-opacity duration-300 pointer-events-none" onclick="closeProgress()"></div>
+      <div id="progress-panel-content" class="absolute right-0 top-0 bottom-0 w-full max-w-lg bg-white shadow-xl overflow-y-auto transition-transform duration-300 ease-out translate-x-full pointer-events-auto">
+        <div id="challenge-progress" class="p-5"></div>
+      </div>
     </div>
 
     <!-- TREASURY TAB -->
-    <div id="tab-treasury" class="hidden px-5 pt-8">
+    <div id="tab-treasury" class="hidden px-5 pt-8 max-w-2xl mx-auto w-full">
       <div class="flex justify-between items-baseline mb-4">
         <h2 class="text-xl font-bold text-slate-800">Treasury</h2>
       </div>
@@ -174,7 +183,7 @@
     </div>
 
     <!-- PROFILE TAB -->
-    <div id="tab-profile" class="hidden px-5 pt-8">
+    <div id="tab-profile" class="hidden px-5 pt-8 max-w-2xl mx-auto w-full">
       <div class="flex items-center gap-4 mb-6">
         <div class="h-16 w-16 rounded-full bg-indigo-100 flex items-center justify-center text-2xl shadow-inner" id="profile-avatar">👤</div>
         <div>
@@ -189,20 +198,36 @@
       <hr class="border-slate-200 my-6">
 
       <h3 class="text-lg font-bold text-slate-800 mb-3">My Families</h3>
-      <form id="create-family-form" class="mb-3">
-        <div class="flex gap-2">
-          <input type="text" id="family-name" placeholder="Family name" required
-            class="flex-1 py-3 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none">
-          <button type="submit" class="py-3 px-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors">Create</button>
+      <div class="mb-3">
+        <button type="button" onclick="toggleCollapsible(this)" class="w-full flex items-center justify-between py-2 px-3 bg-slate-50 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-100 transition-colors">
+          <span>➕ Create a family</span>
+          <span class="collapse-arrow transition-transform duration-200">▼</span>
+        </button>
+        <div class="collapsible-content overflow-hidden transition-all duration-300" style="max-height:0">
+          <form id="create-family-form" class="pt-3">
+            <div class="flex gap-2">
+              <input type="text" id="family-name" placeholder="Family name" required
+                class="flex-1 py-3 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none">
+              <button type="submit" class="py-3 px-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors">Create</button>
+            </div>
+          </form>
         </div>
-      </form>
-      <form id="join-family-form" class="mb-4">
-        <div class="flex gap-2">
-          <input type="text" id="invite-code" placeholder="Invite code" required
-            class="flex-1 py-3 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none">
-          <button type="submit" class="py-3 px-4 bg-white text-indigo-700 font-bold rounded-xl border-2 border-indigo-200 hover:bg-indigo-50 transition-colors">Join</button>
+      </div>
+      <div class="mb-4">
+        <button type="button" onclick="toggleCollapsible(this)" class="w-full flex items-center justify-between py-2 px-3 bg-slate-50 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-100 transition-colors">
+          <span>🔗 Join a family</span>
+          <span class="collapse-arrow transition-transform duration-200">▼</span>
+        </button>
+        <div class="collapsible-content overflow-hidden transition-all duration-300" style="max-height:0">
+          <form id="join-family-form" class="pt-3">
+            <div class="flex gap-2">
+              <input type="text" id="invite-code" placeholder="Invite code" required
+                class="flex-1 py-3 px-3 bg-slate-100 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none">
+              <button type="submit" class="py-3 px-4 bg-white text-indigo-700 font-bold rounded-xl border-2 border-indigo-200 hover:bg-indigo-50 transition-colors">Join</button>
+            </div>
+          </form>
         </div>
-      </form>
+      </div>
       <div id="family-list" class="flex flex-col gap-2"></div>
       <div id="family-detail"></div>
 
@@ -330,7 +355,8 @@
   </section>
 
   <!-- ========== BOTTOM NAV ========== -->
-  <nav id="bottom-nav" class="hidden fixed bottom-0 w-full max-w-lg mx-auto bg-white border-t border-slate-200 pb-safe pt-2 px-6 flex justify-between items-center shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-50 left-1/2 -translate-x-1/2">
+   <nav id="bottom-nav" class="hidden fixed bottom-0 w-full max-w-lg mx-auto bg-white border-t border-slate-200 pb-safe pt-2 px-6 flex justify-between items-center shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-50 left-1/2 -translate-x-1/2 relative">
+    <div id="nav-indicator" class="absolute top-0 h-0.5 bg-indigo-600 rounded-full transition-all duration-300 ease-out" style="width:48px;left:0;transform:translateX(0)"></div>
     <button onclick="switchTab('home')" class="tab-btn flex flex-col items-center p-2 text-indigo-600 transition-colors" data-tab="home" aria-current="page">
       <svg class="w-6 h-6 mb-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
       <span class="text-xs font-bold">Home</span>
@@ -348,6 +374,20 @@
       <span class="text-xs font-bold">Profile</span>
     </button>
   </nav>
+
+  <!-- Onboarding coachmark -->
+  <div id="onboarding-overlay" class="hidden fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-6" onclick="dismissOnboarding()">
+    <div class="bg-white rounded-3xl p-6 shadow-xl max-w-sm w-full" onclick="event.stopPropagation()">
+      <h2 class="text-xl font-extrabold text-indigo-950 mb-3">👋 Welcome!</h2>
+      <ul class="text-sm text-slate-700 space-y-3 mb-5">
+        <li class="flex gap-2"><span class="shrink-0">🏠</span> <span><strong>Home</strong> — view your upcoming challenges and family activity</span></li>
+        <li class="flex gap-2"><span class="shrink-0">🎯</span> <span><strong>Quests</strong> — create and manage challenges, log your progress</span></li>
+        <li class="flex gap-2"><span class="shrink-0">💎</span> <span><strong>Treasury</strong> — browse prizes and scan QR codes to redeem</span></li>
+        <li class="flex gap-2"><span class="shrink-0">👤</span> <span><strong>Profile</strong> — manage families, view achievements, sign out</span></li>
+      </ul>
+      <button onclick="dismissOnboarding()" class="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors">Got it!</button>
+    </div>
+  </div>
 
   <script src="js/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
