@@ -26,6 +26,7 @@ public record CreateGoalDto(
     string? Unit = null,
     bool IsHidden = false,
     bool IsPerEntry = false,
+    string MetricCategory = "Count",
     List<CreateActivityDto>? Activities = null
 );
 
@@ -58,6 +59,7 @@ public record UpdateGoalDto(
     string? Unit = null,
     bool IsHidden = false,
     bool IsPerEntry = false,
+    string MetricCategory = "Count",
     List<UpdateActivityDto>? Activities = null
 );
 
@@ -114,7 +116,8 @@ public record ChallengeGoalDto(
     decimal? TargetValue,
     string? Unit,
     bool IsHidden,
-    bool IsPerEntry = false
+    bool IsPerEntry = false,
+    string MetricCategory = "Count"
 );
 
 public record ChallengePrizeDto(

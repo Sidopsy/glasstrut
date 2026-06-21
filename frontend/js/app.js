@@ -1370,7 +1370,8 @@ function addGoalField(goal) {
   div.dataset.index = idx;
   if (goal && goal.id) div.dataset.editId = goal.id;
 
-  const isHidden = goal && goal.isHidden;
+    const isHidden = goal && goal.isHidden;
+  const metricCategory = (goal && goal.metricCategory) || "Count";
   const hideTarget = goal && (goal.type === 'Collection');
 
   div.innerHTML = `
@@ -1404,6 +1405,14 @@ function addGoalField(goal) {
           <input type="checkbox" class="goal-perentry" ${(goal && goal.isPerEntry) ? "checked" : ""}>
           Per-entry — each log must meet target (no accumulation)
         </label>
+        <div class="flex items-center gap-2 text-sm text-slate-600 mt-2">
+          <span class="whitespace-nowrap">Metric type:</span>
+          <select class="goal-metric w-full py-1.5 px-2 bg-white rounded-lg border border-slate-200 text-sm">
+            <option value="Count" ${metricCategory === "Count" ? "selected" : ""}>Count (occurrences)</option>
+            <option value="Distance" ${metricCategory === "Distance" ? "selected" : ""}>Distance (km, mi)</option>
+            <option value="Time" ${metricCategory === "Time" ? "selected" : ""}>Time (min, hr)</option>
+          </select>
+        </div>
       </div>
     </div>
   `;
@@ -1609,6 +1618,7 @@ async function submitChallenge(event) {
         unit: unit || null,
         isHidden,
         isPerEntry: g.querySelector(".goal-perentry")?.checked ?? false,
+        metricCategory: g.querySelector(".goal-metric")?.value || "Count",
       };
       goals.push(gd);
     }
@@ -1926,6 +1936,9 @@ function makeGoalCard(g, challengeId, memberId) {
   const pct = g.targetValue ? Math.round((g.currentValue / g.targetValue) * 100) : 0;
   const badges = [];
   badges.push(`<span class="text-xs font-medium text-slate-500 bg-slate-200 px-2 py-0.5 rounded-full">${escapeHtml(g.goalType)}</span>`);
+  if (g.metricCategory && g.metricCategory !== "Count") {
+    badges.push(`<span class="text-xs font-medium text-cyan-600 bg-cyan-100 px-2 py-0.5 rounded-full">${escapeHtml(g.metricCategory)}</span>`);
+  }
   if (g.isPerEntry) badges.push(`<span class="text-xs font-medium text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">Per-entry</span>`);
   if (g.goalType === 'Streak') badges.push(`<span class="text-xs font-medium text-orange-600 bg-orange-100 px-2 py-0.5 rounded-full">🔥 Streak</span>`);
   return `

@@ -28,7 +28,8 @@ public record GoalProgressDto(
     decimal CurrentValue,
     bool IsCompleted,
     DateTime? CompletedAt,
-    bool IsPerEntry = false
+    bool IsPerEntry = false,
+    string MetricCategory = "Count"
 );
 
 public record AchievementDto(

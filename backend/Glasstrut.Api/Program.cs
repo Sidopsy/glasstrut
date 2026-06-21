@@ -90,6 +90,117 @@ using (IServiceScope scope = app.Services.CreateScope())
         db.Database.ExecuteSqlRaw("ALTER TABLE ChallengeActivities ADD COLUMN TimeUnit TEXT NULL");
     }
     catch { /* Column may already exist */ }
+
+    // Backfill MetricCategory for existing goals and recalculate progress
+    try
+    {
+        db.Database.ExecuteSqlRaw(@"
+            UPDATE ChallengeGoals
+            SET MetricCategory = CASE
+                WHEN EXISTS (SELECT 1 FROM ChallengeActivityGoal gl
+                    INNER JOIN ChallengeActivities a ON gl.ChallengeActivityId = a.Id
+                    WHERE gl.ChallengeGoalId = ChallengeGoals.Id AND a.ActivityType = 'Distance')
+                THEN 'Distance'
+                WHEN EXISTS (SELECT 1 FROM ChallengeActivityGoal gl
+                    INNER JOIN ChallengeActivities a ON gl.ChallengeActivityId = a.Id
+                    WHERE gl.ChallengeGoalId = ChallengeGoals.Id AND a.ActivityType = 'Time')
+                THEN 'Time'
+                WHEN EXISTS (SELECT 1 FROM ChallengeActivityGoal gl
+                    INNER JOIN ChallengeActivities a ON gl.ChallengeActivityId = a.Id
+                    WHERE gl.ChallengeGoalId = ChallengeGoals.Id AND a.ActivityType = 'DistanceAndTime')
+                THEN 'Distance'
+                ELSE 'Count'
+            END
+        ");
+    }
+    catch { /* Column may not exist yet */ }
+
+    // Recalculate GoalProgress.CurrentValue for accumulation goals
+    try
+    {
+        db.Database.ExecuteSqlRaw(@"
+            UPDATE GoalProgresses
+            SET CurrentValue = (
+                SELECT COALESCE(SUM(
+                    CASE
+                        WHEN a.ActivityType = 'DistanceAndTime' AND g.MetricCategory = 'Time'
+                            THEN COALESCE(pe.TimeAmount, 0) * a.PointValue
+                        ELSE pe.Amount * a.PointValue
+                    END
+                ), 0)
+                FROM ProgressEntries pe
+                INNER JOIN ChallengeActivities a ON pe.ChallengeActivityId = a.Id
+                INNER JOIN ChallengeActivityGoal gl ON a.Id = gl.ChallengeActivityId
+                INNER JOIN ChallengeGoals g ON gl.ChallengeGoalId = g.Id
+                WHERE gl.ChallengeGoalId = GoalProgresses.ChallengeGoalId
+                  AND pe.UserId = GoalProgresses.UserId
+                  AND (
+                       (a.ActivityType = g.MetricCategory)
+                       OR (a.ActivityType = 'DistanceAndTime' AND g.MetricCategory IN ('Distance', 'Time'))
+                       OR (a.ActivityType = 'Occurrence' AND g.MetricCategory = 'Count')
+                  )
+            )
+            WHERE EXISTS (
+                SELECT 1 FROM ChallengeActivityGoal gl
+                WHERE gl.ChallengeGoalId = GoalProgresses.ChallengeGoalId
+            )
+        ");
+    }
+    catch { /* Table may not have data yet */ }
+
+    // Recalculate per-entry goals (use MAX instead of SUM)
+    try
+    {
+        db.Database.ExecuteSqlRaw(@"
+            UPDATE GoalProgresses
+            SET CurrentValue = (
+                SELECT COALESCE(MAX(
+                    CASE
+                        WHEN a.ActivityType = 'DistanceAndTime' AND g.MetricCategory = 'Time'
+                            THEN COALESCE(pe.TimeAmount, 0) * a.PointValue
+                        ELSE pe.Amount * a.PointValue
+                    END
+                ), 0)
+                FROM ProgressEntries pe
+                INNER JOIN ChallengeActivities a ON pe.ChallengeActivityId = a.Id
+                INNER JOIN ChallengeActivityGoal gl ON a.Id = gl.ChallengeActivityId
+                INNER JOIN ChallengeGoals g ON gl.ChallengeGoalId = g.Id
+                WHERE gl.ChallengeGoalId = GoalProgresses.ChallengeGoalId
+                  AND pe.UserId = GoalProgresses.UserId
+                  AND (
+                       (a.ActivityType = g.MetricCategory)
+                       OR (a.ActivityType = 'DistanceAndTime' AND g.MetricCategory IN ('Distance', 'Time'))
+                       OR (a.ActivityType = 'Occurrence' AND g.MetricCategory = 'Count')
+                  )
+            )
+            WHERE EXISTS (
+                SELECT 1 FROM ChallengeGoals g2
+                WHERE g2.Id = GoalProgresses.ChallengeGoalId AND g2.IsPerEntry = 1
+            )
+        ");
+    }
+    catch { /* Table may not have data yet */ }
+
+    // Re-evaluate IsCompleted/CompletedAt after recalculating
+    try
+    {
+        db.Database.ExecuteSqlRaw(@"
+            UPDATE GoalProgresses
+            SET IsCompleted = CASE
+                    WHEN g.TargetValue IS NOT NULL AND GoalProgresses.CurrentValue >= g.TargetValue THEN 1
+                    ELSE 0
+                END,
+                CompletedAt = CASE
+                    WHEN g.TargetValue IS NOT NULL AND GoalProgresses.CurrentValue >= g.TargetValue
+                         AND GoalProgresses.CompletedAt IS NULL THEN datetime('now')
+                    ELSE GoalProgresses.CompletedAt
+                END
+            FROM ChallengeGoals g
+            WHERE g.Id = GoalProgresses.ChallengeGoalId
+              AND g.Type IN ('Achievement', 'Streak')
+        ");
+    }
+    catch { /* Table may not have data yet */ }
 }
 
 if (app.Environment.IsDevelopment())

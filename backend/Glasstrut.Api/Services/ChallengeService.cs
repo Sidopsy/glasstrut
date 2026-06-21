@@ -287,6 +287,7 @@ public class ChallengeService : IChallengeService
                     existing.Unit = gd.Unit;
                     existing.IsHidden = gd.IsHidden;
                     existing.IsPerEntry = gd.IsPerEntry;
+                    existing.MetricCategory = gd.MetricCategory;
                 }
                 else
                 {
@@ -300,6 +301,7 @@ public class ChallengeService : IChallengeService
                         Unit = gd.Unit,
                         IsHidden = gd.IsHidden,
                         IsPerEntry = gd.IsPerEntry,
+                        MetricCategory = gd.MetricCategory,
                         CreatedAt = DateTime.UtcNow,
                     });
                 }
@@ -495,6 +497,7 @@ public class ChallengeService : IChallengeService
                     Unit = goalDto.Unit,
                     IsHidden = goalDto.IsHidden,
                     IsPerEntry = goalDto.IsPerEntry,
+                    MetricCategory = goalDto.MetricCategory,
                     CreatedAt = DateTime.UtcNow,
                 };
 
@@ -531,7 +534,7 @@ public class ChallengeService : IChallengeService
             c.Id, c.Title, c.Description, c.Type, c.FamilyId,
             c.StartDate, c.EndDate, c.CreatedAt, c.CurrencyName, c.CreatedById,
             c.Goals.Select(g => new ChallengeGoalDto(
-                g.Id, g.Description, g.Type, g.TargetValue, g.Unit, g.IsHidden, g.IsPerEntry
+                g.Id, g.Description, g.Type, g.TargetValue, g.Unit, g.IsHidden, g.IsPerEntry, g.MetricCategory
             )).ToList(),
             c.Prizes
                 .Where(p => p.ChallengeGoalId == null

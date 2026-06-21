@@ -445,7 +445,8 @@ public class ComprehensiveTests : IClassFixture<CustomWebApplicationFactory>
                     description = "Run with time",
                     type = "Achievement",
                     targetValue = 100m,
-                    unit = "km"
+                    unit = "km",
+                    metricCategory = "Distance"
                 }
             },
             activities = new[]

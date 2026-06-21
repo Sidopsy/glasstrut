@@ -118,7 +118,37 @@ public class GoalService : IGoalService
         foreach (var goalLink in activity.GoalLinks)
         {
             var goal = goalLink.Goal;
-            var delta = request.Amount * activity.PointValue;
+
+            // Metric-aware delta: skip if activity type is incompatible with goal metric
+            var activityMetric = activity.ActivityType switch
+            {
+                "Distance" => "Distance",
+                "Time" => "Time",
+                _ => "Count"
+            };
+            var goalMetric = goal.MetricCategory;
+
+            if (activityMetric != goalMetric && activity.ActivityType != "DistanceAndTime")
+                continue;
+
+            // For DistanceAndTime: Amount→Distance goals, TimeAmount→Time goals
+            decimal deltaBase;
+            if (activity.ActivityType == "DistanceAndTime")
+            {
+                if (goalMetric == "Time" && request.TimeAmount.HasValue)
+                    deltaBase = request.TimeAmount.Value;
+                else if (goalMetric == "Distance")
+                    deltaBase = request.Amount;
+                else
+                    continue;
+            }
+            else
+            {
+                deltaBase = request.Amount;
+            }
+
+            if (deltaBase <= 0) continue;
+            var delta = deltaBase * activity.PointValue;
             var isStreak = goal.Type == "Streak";
 
             var progress = await _db.GoalProgresses
@@ -271,8 +301,25 @@ public class GoalService : IGoalService
         foreach (var goalLink in entry.Activity.GoalLinks)
         {
             var goal = goalLink.Goal;
-            var oldDelta = entry.Amount * entry.Activity.PointValue;
-            var newDelta = request.Amount * entry.Activity.PointValue;
+
+            // Metric-aware delta calculation
+            decimal GetDelta(decimal amt, decimal? tAmt)
+            {
+                var activity = entry.Activity;
+                if (activity.ActivityType == "DistanceAndTime")
+                {
+                    if (goal.MetricCategory == "Time" && tAmt.HasValue)
+                        return tAmt.Value * activity.PointValue;
+                    if (goal.MetricCategory == "Distance")
+                        return amt * activity.PointValue;
+                    return 0;
+                }
+                var am = activity.ActivityType switch { "Distance" => "Distance", "Time" => "Time", _ => "Count" };
+                return am == goal.MetricCategory ? amt * activity.PointValue : 0;
+            }
+
+            var oldDelta = GetDelta(entry.Amount, entry.TimeAmount);
+            var newDelta = GetDelta(request.Amount, request.TimeAmount);
             var deltaChange = newDelta - oldDelta;
             var isStreak = goal.Type == "Streak";
 
@@ -287,12 +334,25 @@ public class GoalService : IGoalService
                 }
                 else if (goal.IsPerEntry)
                 {
-                    var maxEntry = await _db.ProgressEntries
+                    var allEntries = await _db.ProgressEntries
                         .Include(e => e.Activity)
                         .Where(e => e.Activity.GoalLinks.Any(gl => gl.ChallengeGoalId == goal.Id)
                             && e.UserId == userId)
-                        .MaxAsync(e => (decimal?)(e.Amount * e.Activity.PointValue)) ?? 0;
-                    progress.CurrentValue = maxEntry;
+                        .ToListAsync();
+                    progress.CurrentValue = allEntries.Max(e =>
+                    {
+                        var act = e.Activity;
+                        if (act.ActivityType == "DistanceAndTime")
+                        {
+                            if (goal.MetricCategory == "Time" && e.TimeAmount.HasValue)
+                                return e.TimeAmount.Value * act.PointValue;
+                            if (goal.MetricCategory == "Distance")
+                                return e.Amount * act.PointValue;
+                            return 0M;
+                        }
+                        var am = act.ActivityType switch { "Distance" => "Distance", "Time" => "Time", _ => "Count" };
+                        return am == goal.MetricCategory ? e.Amount * act.PointValue : 0M;
+                    });
                 }
                 else
                 {
@@ -714,7 +774,7 @@ public class GoalService : IGoalService
             p.Id, g.Id, g.Description, g.Type,
             g.TargetValue, g.Unit,
             p.CurrentValue, p.IsCompleted, p.CompletedAt,
-            g.IsPerEntry
+            g.IsPerEntry, g.MetricCategory
         );
     }
 }
