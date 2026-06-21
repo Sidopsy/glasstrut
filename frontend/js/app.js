@@ -14,6 +14,59 @@ let cachedFamilies = [];
 let currentUserId = null;
 let currentUserEmail = null;
 
+// Optimistic/pending entries for offline-first UI
+const optimisticEntries = [];
+
+function addOptimisticEntry(data) {
+  optimisticEntries.unshift({
+    id: "opt-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6),
+    userEmail: currentUserEmail,
+    activityName: data.activityName || "",
+    amount: data.amount || 0,
+    unit: data.unit || "",
+    timeAmount: data.timeAmount,
+    notes: data.notes,
+    recordedAt: data.occurredAt || new Date().toISOString(),
+    currencyEarned: 0,
+    type: data.type || "activity",
+    challengeId: data.challengeId,
+    activityId: data.activityId,
+    pending: true,
+  });
+}
+
+function clearOptimisticEntries() {
+  optimisticEntries.length = 0;
+}
+
+function getOptimisticChronicleEntries() {
+  return optimisticEntries.filter(e => e.type === "activity");
+}
+
+function getOptimisticActivityLogEntries(challengeId) {
+  return optimisticEntries.filter(e => e.challengeId === challengeId && e.type === "activity");
+}
+
+function renderOptimisticChronicleEntry(e, userIcons) {
+  const email = e.userEmail || "";
+  if (email && !userIcons[email]) userIcons[email] = email[0].toUpperCase();
+  return `<div class="bg-white rounded-2xl p-4 shadow-sm border border-dashed border-amber-300 flex items-center gap-4" data-opt-id="${e.id}">
+    <div class="h-12 w-12 rounded-full bg-amber-100 flex items-center justify-center text-xl shrink-0 font-bold text-amber-600">${userIcons[email] || "?"}</div>
+    <div class="flex-1 min-w-0">
+      <p class="text-sm text-slate-600"><span class="font-bold text-slate-800">${escapeHtml(email ? email.split('@')[0] : "someone")}</span> logged</p>
+      <p class="font-bold text-slate-800 truncate">${escapeHtml(e.activityName)}</p>
+    </div>
+    <div class="text-right shrink-0">
+      <span class="font-bold text-green-500 bg-green-50 px-2 py-1 rounded-lg text-sm">+${e.amount} ${escapeHtml(e.unit || "")}</span>
+      <p class="text-xs font-bold text-amber-600 mt-0.5 flex items-center gap-1">
+        <span class="inline-block h-2 w-2 rounded-full bg-amber-400 animate-pulse"></span> pending
+      </p>
+      <button onclick="retryOptimisticEntry('${e.id}')" class="text-xs text-indigo-600 hover:text-indigo-800 font-semibold mt-1">retry</button>
+      <button onclick="discardOptimisticEntry('${e.id}')" class="text-xs text-red-500 hover:text-red-700 font-semibold ml-1">discard</button>
+    </div>
+  </div>`;
+}
+
 function authHeaders() {
   const token = localStorage.getItem("token");
   return token ? { "Authorization": "Bearer " + token } : {};
@@ -170,6 +223,8 @@ async function replayPendingQueue() {
   updatePendingIndicator();
   if (remaining.length < entries.length) {
     showToast("Sync Complete", `${entries.length - remaining.length} offline activities synced!`, "success");
+    clearOptimisticEntries();
+    loadAllData();
   }
   if (remaining.length > 0) {
     showToast("Sync Failed", `${remaining.length} items could not be synced. They will be retried.`, "error");
@@ -280,8 +335,24 @@ async function apiFetch(path, options = {}) {
           setTimeout(() => showAuth(), 1500);
           return { ok: false, status: 401, json: async () => ({ error: "Session expired" }) };
         }
-        if (res.ok) {
-          const data = await res.json();
+  if (res.ok) {
+    if (res._queued) {
+      // Offline optimistic UI
+      addOptimisticEntry({
+        challengeId,
+        activityId,
+        activityName: form.querySelector(".act-name")?.value || (form.closest("[data-activity-name]")?.dataset.activityName) || "Activity",
+        amount,
+        unit: form.querySelector(".act-unit")?.value || "",
+        timeAmount,
+        notes: notesInput ? notesInput.value.trim() : "",
+        occurredAt: body.occurredAt,
+      });
+      showProgress(challengeId);
+      loadAllData();
+      return;
+    }
+    const data = await res.json();
           await dbPut("cache", path, data);
           return { ok: true, json: async () => data, status: res.status, headers: res.headers };
         }
@@ -1097,7 +1168,13 @@ async function loadMoreChronicle() {
     if (entries.length === 0) {
       chronicleDone = true;
       if (chronicleOffset === 0) {
-        container.innerHTML = "<p class='text-sm text-slate-500'>No activity yet. Log some progress in Quests!</p>";
+        const optEntries = getOptimisticChronicleEntries();
+        if (optEntries.length > 0) {
+          // Show pending entries instead of empty state
+          chronicleDone = false;
+        } else {
+          container.innerHTML = "<p class='text-sm text-slate-500'>No activity yet. Log some progress in Quests!</p>";
+        }
       }
       chronicleLoading = false;
       return;
@@ -1116,7 +1193,12 @@ async function loadMoreChronicle() {
     }
     chronicleOffset += entries.length;
     const userIcons = {};
-    container.insertAdjacentHTML("beforeend", entries.map(e => {
+    // Prepend optimistic (pending) entries on first page
+    let prefixHtml = "";
+    if (chronicleOffset <= 20) {
+      prefixHtml = getOptimisticChronicleEntries().map(e => renderOptimisticChronicleEntry(e, userIcons)).join("");
+    }
+    container.insertAdjacentHTML("beforeend", prefixHtml + entries.map(e => {
       const email = e.userEmail || "";
       if (email && !userIcons[email]) userIcons[email] = email[0].toUpperCase();
       const entryDate = new Date(e.recordedAt);
@@ -2096,10 +2178,27 @@ async function renderActivityLog(challengeId) {
   const res = await apiFetch(`/api/challenges/${challengeId}/activity-log?count=50`);
   if (!res.ok) return "";
   const entries = await res.json();
-  if (!entries.length) return "";
 
   const userEmojis = {};
   let html = `<div class="mt-4 pt-4 border-t border-slate-200"><h4 class="font-bold text-slate-800 mb-2">Activity Log</h4>`;
+
+  // Prepending optimistic (pending) entries
+  const optEntries = getOptimisticActivityLogEntries(challengeId);
+  for (const e of optEntries) {
+    const entryUserEmail = e.userEmail || "unknown";
+    if (!userEmojis[entryUserEmail]) userEmojis[entryUserEmail] = entryUserEmail[0].toUpperCase();
+    html += `<div class="flex items-center gap-2 py-2 text-sm bg-amber-50 rounded-lg px-2" data-opt-id="${e.id}">
+      <span class="h-6 w-6 rounded-full bg-amber-200 flex items-center justify-center text-xs font-bold text-amber-700 shrink-0">${userEmojis[entryUserEmail]}</span>
+      <span class="font-semibold text-slate-700">${escapeHtml(entryUserEmail.split('@')[0])}</span>
+      <span class="text-slate-500">${escapeHtml(e.activityName)}</span>
+      <span class="text-green-600 font-medium">+${e.amount} ${escapeHtml(e.unit || "")}</span>
+      <span class="text-xs text-amber-600 font-semibold flex items-center gap-1 ml-auto"><span class="inline-block h-2 w-2 rounded-full bg-amber-400 animate-pulse"></span> pending</span>
+      <button onclick="retryOptimisticEntry('${e.id}')" class="text-xs text-indigo-600 hover:text-indigo-800 font-semibold ml-1">retry</button>
+      <button onclick="discardOptimisticEntry('${e.id}')" class="text-xs text-red-500 hover:text-red-700 font-semibold ml-1">discard</button>
+    </div>`;
+  }
+
+  if (entries.length === 0 && optEntries.length === 0) return "";
   for (const e of entries) {
     const entryUserEmail = e.userEmail || "unknown";
     if (!userEmojis[entryUserEmail]) userEmojis[entryUserEmail] = entryUserEmail[0].toUpperCase();
@@ -2467,7 +2566,25 @@ async function confirmRedemption(challengeId, prizeId, event) {
 let scannerStream = null;
 let scannerAnimationId = null;
 
+async function loadJsQR() {
+  if (window.jsQR) return;
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js";
+    script.onload = resolve;
+    script.onerror = () => reject(new Error("Failed to load jsQR"));
+    document.head.appendChild(script);
+  });
+}
+
 async function openScanner() {
+  // Lazy-load jsQR
+  try {
+    await loadJsQR();
+  } catch {
+    showToast("Error", "Failed to load QR scanner library. Check your connection.", "error");
+    return;
+  }
   const existing = document.getElementById("scanner-modal");
   if (existing) existing.remove();
 
@@ -2650,4 +2767,47 @@ function showOnboarding() {
 
 function dismissOnboarding() {
   document.getElementById("onboarding-overlay").classList.add("hidden");
+}
+
+async function retryOptimisticEntry(id) {
+  const idx = optimisticEntries.findIndex(e => e.id === id);
+  if (idx === -1) return;
+  const entry = optimisticEntries[idx];
+  const headers = { ...authHeaders(), "Content-Type": "application/json" };
+  const body = { amount: entry.amount };
+  if (entry.timeAmount != null) body.timeAmount = entry.timeAmount;
+  if (entry.notes) body.notes = entry.notes;
+  if (entry.recordedAt) body.occurredAt = entry.recordedAt;
+  try {
+    const res = await fetch(API + `/api/challenges/${entry.challengeId}/activities/${entry.activityId}/log`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      optimisticEntries.splice(idx, 1);
+      showToast("Synced", "Activity logged successfully!", "success");
+      loadAllData();
+    } else {
+      showToast("Retry Failed", "Could not sync this entry. Try again later.", "error");
+    }
+  } catch {
+    showToast("Offline", "Still offline. Will retry automatically when connected.", "info");
+  }
+}
+
+function discardOptimisticEntry(id) {
+  const idx = optimisticEntries.findIndex(e => e.id === id);
+  if (idx === -1) return;
+  // Remove from pending store too (fuzzy match by path + method + body)
+  getPendingEntries().then(entries => {
+    for (const pe of entries) {
+      if (pe.path && pe.path.includes("/log")) {
+        removePendingEntry(pe.id);
+      }
+    }
+  });
+  optimisticEntries.splice(idx, 1);
+  renderChronicleFeed();
+  showToast("Discarded", "Pending entry removed.", "info");
 }

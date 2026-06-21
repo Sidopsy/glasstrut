@@ -1,10 +1,11 @@
-const CACHE_NAME = "glasstrut-v4";
-const CDN_CACHE = "glasstrut-cdn-v2";
+const CACHE_NAME = "glasstrut-v5";
+const CDN_CACHE = "glasstrut-cdn-v3";
 const API_CACHE = "glasstrut-api-v1";
 
 const STATIC_FILES = [
   "./",
   "./index.html",
+  "./offline.html",
   "./css/style.css",
   "./js/config.js",
   "./js/app.js",
@@ -14,7 +15,6 @@ const STATIC_FILES = [
 
 const CDN_URLS = [
   "https://cdn.tailwindcss.com",
-  "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js",
 ];
 
 self.addEventListener("install", (event) => {
@@ -91,6 +91,13 @@ self.addEventListener("fetch", (event) => {
 
   // Static files: cache-first with network fallback
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request))
+    caches.match(event.request).then((cached) => {
+      if (cached) return cached;
+      // Navigation fallback — serve offline.html when no cache match
+      if (event.request.mode === "navigate") {
+        return caches.match("./offline.html");
+      }
+      return fetch(event.request);
+    })
   );
 });

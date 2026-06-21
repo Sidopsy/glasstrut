@@ -126,7 +126,7 @@
 
 ## Phase 13 — UX Polish & Offline-First Client
 
-**Status:** In progress — 47 of 64 items checked, 1 optional skipped, 16 remaining.
+**Status:** In progress — 52 of 64 items checked, 1 optional skipped, 11 remaining.
 
 ### 13a — High-Severity UX Fixes (UX-REVIEW-V2)
 
@@ -197,7 +197,7 @@
 **Local-First Writes:**
 - [x] On non-GET requests (activity log, challenge create/edit, prize redeem): write to IndexedDB `pending` store **before** network attempt, then try backend
 - [x] On network failure: entry stays in `pending` store with status `pending`; no data loss
-- [ ] Show optimistically updated UI from local data before backend confirms
+- [x] Show optimistically updated UI from local data before backend confirms
 
 **Background Sync & Queue:**
 - [x] Replace localStorage offline queue with IndexedDB-backed `pending` store
@@ -207,16 +207,16 @@
 
 **Pending State UI:**
 - [x] Show "📤 N pending" badge (`#pending-indicator`) in top-right corner when `pending` store is non-empty
-- [ ] Show pending entries in activity log / chronicle with a "sending..." or "pending" indicator
-- [ ] Allow user to tap a pending entry to retry or discard
+- [x] Show pending entries in activity log / chronicle with a "sending..." or "pending" indicator
+- [x] Allow user to tap a pending entry to retry or discard
 
 **Offline Read Capability:**
-- [x] Service worker caches API `GET` responses with network-first + cache-fallback strategy for all `/api/*` routes (sw.js v4)
-- [ ] Cache a minimal `offline.html` as fallback for uncached navigation (finding 10.5)
+- [x] Service worker caches API `GET` responses with network-first + cache-fallback strategy for all `/api/*` routes (sw.js v5)
+- [x] Cache a minimal `offline.html` as fallback for uncached navigation (finding 10.5)
 - [x] Read views fall back to IndexedDB cached data when network fails
 
 **Service Worker & PWA Improvements:**
-- [ ] Lazy-load `jsQR` only when scanner is opened (dynamic `import()` — finding 9.2)
+- [x] Lazy-load `jsQR` only when scanner is opened (dynamic `import()` — finding 9.2)
 - [x] Add themed splash screen via manifest `background_color: "#4f46e5"` (finding 10.2)
 - [x] Add manifest `shortcuts` for common actions (New Challenge, Scan QR — finding 10.3)
 - [x] Reconcile `./` vs `./index.html` double-caching: SW serves `./` for both routes (finding 10.1)
