@@ -92,115 +92,78 @@ using (IServiceScope scope = app.Services.CreateScope())
     catch { /* Column may already exist */ }
 
     // Backfill MetricCategory for existing goals and recalculate progress
-    try
+    var goalsNeedingCategory = await db.ChallengeGoals
+        .Include(g => g.ActivityLinks)
+            .ThenInclude(gl => gl.Activity)
+        .Where(g => g.MetricCategory == null || g.MetricCategory == "Count")
+        .ToListAsync();
+    if (goalsNeedingCategory.Count > 0)
     {
-        db.Database.ExecuteSqlRaw(@"
-            UPDATE ChallengeGoals
-            SET MetricCategory = CASE
-                WHEN EXISTS (SELECT 1 FROM ChallengeActivityGoal gl
-                    INNER JOIN ChallengeActivities a ON gl.ChallengeActivityId = a.Id
-                    WHERE gl.ChallengeGoalId = ChallengeGoals.Id AND a.ActivityType = 'Distance')
-                THEN 'Distance'
-                WHEN EXISTS (SELECT 1 FROM ChallengeActivityGoal gl
-                    INNER JOIN ChallengeActivities a ON gl.ChallengeActivityId = a.Id
-                    WHERE gl.ChallengeGoalId = ChallengeGoals.Id AND a.ActivityType = 'Time')
-                THEN 'Time'
-                WHEN EXISTS (SELECT 1 FROM ChallengeActivityGoal gl
-                    INNER JOIN ChallengeActivities a ON gl.ChallengeActivityId = a.Id
-                    WHERE gl.ChallengeGoalId = ChallengeGoals.Id AND a.ActivityType = 'DistanceAndTime')
-                THEN 'Distance'
-                ELSE 'Count'
-            END
-        ");
-    }
-    catch { /* Column may not exist yet */ }
+        foreach (var goal in goalsNeedingCategory)
+        {
+            if (goal.ActivityLinks.Any(gl => gl.Activity.ActivityType == "Distance"))
+                goal.MetricCategory = "Distance";
+            else if (goal.ActivityLinks.Any(gl => gl.Activity.ActivityType == "Time"))
+                goal.MetricCategory = "Time";
+            else if (goal.ActivityLinks.Any(gl => gl.Activity.ActivityType == "DistanceAndTime"))
+                goal.MetricCategory = "Distance";
+            else
+                goal.MetricCategory = "Count";
+        }
+        await db.SaveChangesAsync();
 
-    // Recalculate GoalProgress.CurrentValue for accumulation goals
-    try
-    {
-        db.Database.ExecuteSqlRaw(@"
-            UPDATE GoalProgresses
-            SET CurrentValue = (
-                SELECT COALESCE(SUM(
-                    CASE
-                        WHEN a.ActivityType = 'DistanceAndTime' AND g.MetricCategory = 'Time'
-                            THEN COALESCE(pe.TimeAmount, 0) * a.PointValue
-                        ELSE pe.Amount * a.PointValue
-                    END
-                ), 0)
-                FROM ProgressEntries pe
-                INNER JOIN ChallengeActivities a ON pe.ChallengeActivityId = a.Id
-                INNER JOIN ChallengeActivityGoal gl ON a.Id = gl.ChallengeActivityId
-                INNER JOIN ChallengeGoals g ON gl.ChallengeGoalId = g.Id
-                WHERE gl.ChallengeGoalId = GoalProgresses.ChallengeGoalId
-                  AND pe.UserId = GoalProgresses.UserId
-                  AND (
-                       (a.ActivityType = g.MetricCategory)
-                       OR (a.ActivityType = 'DistanceAndTime' AND g.MetricCategory IN ('Distance', 'Time'))
-                       OR (a.ActivityType = 'Occurrence' AND g.MetricCategory = 'Count')
-                  )
-            )
-            WHERE EXISTS (
-                SELECT 1 FROM ChallengeActivityGoal gl
-                WHERE gl.ChallengeGoalId = GoalProgresses.ChallengeGoalId
-            )
-        ");
-    }
-    catch { /* Table may not have data yet */ }
+        // Recalculate GoalProgress for accumulation and per-entry goals
+        var allProgresses = await db.GoalProgresses
+            .Include(p => p.Goal)
+            .Where(p => p.Goal.Type == "Achievement")
+            .ToListAsync();
+        foreach (var gp in allProgresses)
+        {
+            var entries = await db.ProgressEntries
+                .Include(e => e.Activity)
+                .ThenInclude(a => a.GoalLinks)
+                .Where(e => e.Activity.GoalLinks.Any(gl => gl.ChallengeGoalId == gp.ChallengeGoalId)
+                    && e.UserId == gp.UserId)
+                .ToListAsync();
 
-    // Recalculate per-entry goals (use MAX instead of SUM)
-    try
-    {
-        db.Database.ExecuteSqlRaw(@"
-            UPDATE GoalProgresses
-            SET CurrentValue = (
-                SELECT COALESCE(MAX(
-                    CASE
-                        WHEN a.ActivityType = 'DistanceAndTime' AND g.MetricCategory = 'Time'
-                            THEN COALESCE(pe.TimeAmount, 0) * a.PointValue
-                        ELSE pe.Amount * a.PointValue
-                    END
-                ), 0)
-                FROM ProgressEntries pe
-                INNER JOIN ChallengeActivities a ON pe.ChallengeActivityId = a.Id
-                INNER JOIN ChallengeActivityGoal gl ON a.Id = gl.ChallengeActivityId
-                INNER JOIN ChallengeGoals g ON gl.ChallengeGoalId = g.Id
-                WHERE gl.ChallengeGoalId = GoalProgresses.ChallengeGoalId
-                  AND pe.UserId = GoalProgresses.UserId
-                  AND (
-                       (a.ActivityType = g.MetricCategory)
-                       OR (a.ActivityType = 'DistanceAndTime' AND g.MetricCategory IN ('Distance', 'Time'))
-                       OR (a.ActivityType = 'Occurrence' AND g.MetricCategory = 'Count')
-                  )
-            )
-            WHERE EXISTS (
-                SELECT 1 FROM ChallengeGoals g2
-                WHERE g2.Id = GoalProgresses.ChallengeGoalId AND g2.IsPerEntry = 1
-            )
-        ");
-    }
-    catch { /* Table may not have data yet */ }
+            if (gp.Goal.IsPerEntry)
+            {
+                gp.CurrentValue = entries.Max(e => GetMetricDelta(e.Amount, e.TimeAmount, e.Activity, gp.Goal.MetricCategory));
+            }
+            else
+            {
+                gp.CurrentValue = entries.Sum(e => GetMetricDelta(e.Amount, e.TimeAmount, e.Activity, gp.Goal.MetricCategory));
+            }
 
-    // Re-evaluate IsCompleted/CompletedAt after recalculating
-    try
-    {
-        db.Database.ExecuteSqlRaw(@"
-            UPDATE GoalProgresses
-            SET IsCompleted = CASE
-                    WHEN g.TargetValue IS NOT NULL AND GoalProgresses.CurrentValue >= g.TargetValue THEN 1
-                    ELSE 0
-                END,
-                CompletedAt = CASE
-                    WHEN g.TargetValue IS NOT NULL AND GoalProgresses.CurrentValue >= g.TargetValue
-                         AND GoalProgresses.CompletedAt IS NULL THEN datetime('now')
-                    ELSE GoalProgresses.CompletedAt
-                END
-            FROM ChallengeGoals g
-            WHERE g.Id = GoalProgresses.ChallengeGoalId
-              AND g.Type IN ('Achievement', 'Streak')
-        ");
+            if (gp.Goal.TargetValue.HasValue)
+            {
+                gp.IsCompleted = gp.CurrentValue >= gp.Goal.TargetValue.Value;
+                if (gp.IsCompleted && gp.CompletedAt == null)
+                    gp.CompletedAt = DateTime.UtcNow;
+            }
+            gp.UpdatedAt = DateTime.UtcNow;
+        }
+        await db.SaveChangesAsync();
     }
-    catch { /* Table may not have data yet */ }
+
+    static decimal GetMetricDelta(decimal amount, decimal? timeAmount, ChallengeActivity activity, string goalMetricCategory)
+    {
+        if (activity.ActivityType == "DistanceAndTime")
+        {
+            if (goalMetricCategory == "Time" && timeAmount.HasValue)
+                return timeAmount.Value * activity.PointValue;
+            if (goalMetricCategory == "Distance")
+                return amount * activity.PointValue;
+            return 0;
+        }
+        var am = activity.ActivityType switch
+        {
+            "Distance" => "Distance",
+            "Time" => "Time",
+            _ => "Count"
+        };
+        return am == goalMetricCategory ? amount * activity.PointValue : 0;
+    }
 }
 
 if (app.Environment.IsDevelopment())
