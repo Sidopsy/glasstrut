@@ -81,6 +81,8 @@ Phase 11 TimeUnit & Test Fixes complete.
 Phase 12 Chronicle Redemptions, Challenge Deletion & Log Editing complete.
 Phase 12b Multi-Goal Activities complete.
 Phase 12c Streak Goals, Per-Entry Goals & Hidden Prize Filtering complete.
+Phase 13 UX Polish & Offline-First Client in progress (32 unchecked).
+Phase 14 Metric Categories complete.
 
 ### Phase 8 — UI Redesign & Challenge Enhancements (complete)
 - Tailwind CSS via CDN replaces most custom CSS
@@ -160,4 +162,16 @@ Phase 12c Streak Goals, Per-Entry Goals & Hidden Prize Filtering complete.
 - Prizes linked to hidden goals filtered from non-completing viewers in challenge list/detail endpoints
 - Frontend: Streak type in goal dropdown, IsPerEntry checkbox in advanced options, badges in progress cards
 - Migration: `AddIsPerEntryAndStreakGoal`
+- Full test coverage: 73 tests pass
+
+### Phase 13 — UX Polish & Offline-First Client (in progress)
+- 31 of 64 items checked, 1 optional skipped, 32 remaining
+- See [ROADMAP.md](./ROADMAP.md) for full checklist
+- Key remaining areas: back navigation, layout/widescreen, mobile UX, offline optimistic UI, conflict resolution, lazy jsQR, low-severity polish
+
+### Phase 14 — Metric Categories (complete)
+- `ChallengeGoal.MetricCategory` (Distance/Time/Count) gates which activity types contribute progress
+- Backend: model, DTOs, GoalService filter, ChallengeService mapping
+- Data correction: unit-based backfill + GoalProgress recalculation on startup
+- Frontend: MetricCategory dropdown in wizard, badge in progress cards
 - Full test coverage: 73 tests pass

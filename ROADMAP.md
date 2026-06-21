@@ -126,6 +126,8 @@
 
 ## Phase 13 — UX Polish & Offline-First Client
 
+**Status:** In progress — 31 of 64 items checked, 1 optional skipped, 32 remaining.
+
 ### 13a — High-Severity UX Fixes (UX-REVIEW-V2)
 
 **Visual & Interaction (High):**
@@ -262,3 +264,36 @@
 - [x] Show date instead of relative time for backdated items in chronicle feed
 - [x] Disallow future dates via `max` attribute on all date pickers
 - [x] For backdated entries in offline-first (13c): `occurredAt` included in IndexedDB `pending` entry body
+
+## Phase 14 — Metric Categories
+
+### 14a — MetricCategory Model & Backend (complete)
+
+- [x] Add `ChallengeGoal.MetricCategory` field (string: "Distance", "Time", "Count")
+- [x] DTOs: `CreateGoalDto.MetricCategory`, `UpdateGoalDto.MetricCategory`, `ChallengeGoalDto.MetricCategory`, `GoalProgressDto.MetricCategory`
+- [x] `ChallengeService.cs` maps MetricCategory on create/update
+- [x] `GoalService.cs`: metric-aware delta calculation in `LogActivityAsync` and `UpdateActivityEntryAsync`
+  - Distance activities → Distance goals
+  - Time activities → Time goals
+  - Occurrence activities → Count goals
+  - DistanceAndTime: Amount→Distance goals, TimeAmount→Time goals
+  - Incompatible activity/goal pairs: skip goal progress update (activity still logged, currency/streak unaffected)
+
+### 14b — Migration & Data Correction (complete)
+
+- [x] EF migration `AddMetricCategoryToGoals`
+- [x] Startup backfill: infer MetricCategory from goal unit (km/mi→Distance, min/hr→Time), fall back to linked activities
+- [x] Startup recalculation: recompute all `GoalProgress.CurrentValue` using metric-aware delta, correct completion status
+- [x] Backfill runs idempotently — only changes goals where current MetricCategory differs from inferred value
+
+### 14c — Frontend UI (complete)
+
+- [x] MetricCategory dropdown in wizard Step 2 advanced section (Distance, Time, Count)
+- [x] Goal creation/update request includes `metricCategory`
+- [x] MetricCategory badge on progress goal cards (cyan badge for non-Count categories)
+
+### 14d — Remaining Polish
+
+- [ ] Consider auto-deriving MetricCategory from linked activities when creating goal through wizard (pre-select based on first linked activity's type)
+- [ ] Add unit-based MetricCategory inference to goal creation (if user enters "km" as unit, auto-select "Distance")
+- [ ] Validate challenge creation: warn if no activity linked to a goal has a compatible MetricCategory
