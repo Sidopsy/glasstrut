@@ -92,31 +92,45 @@ using (IServiceScope scope = app.Services.CreateScope())
     catch { /* Column may already exist */ }
 
     // Backfill MetricCategory for existing goals and recalculate progress
-    var goalsNeedingCategory = await db.ChallengeGoals
+    static string InferGoalMetricCategory(ChallengeGoal goal)
+    {
+        var unit = goal.Unit?.ToLowerInvariant().Trim();
+        var distanceUnits = new[] { "km", "kilometer", "kilometers", "mile", "miles", "mi", "meter", "meters", "m", "ft", "feet", "foot" };
+        var timeUnits = new[] { "min", "minute", "minutes", "hr", "hour", "hours", "h", "sec", "second", "seconds" };
+        if (!string.IsNullOrEmpty(unit))
+        {
+            if (distanceUnits.Contains(unit)) return "Distance";
+            if (timeUnits.Contains(unit)) return "Time";
+        }
+        var activityLinks = goal.ActivityLinks ?? new List<ChallengeActivityGoal>();
+        if (activityLinks.Any(gl => gl.Activity?.ActivityType == "Distance")) return "Distance";
+        if (activityLinks.Any(gl => gl.Activity?.ActivityType == "Time")) return "Time";
+        if (activityLinks.Any(gl => gl.Activity?.ActivityType == "DistanceAndTime")) return "Distance";
+        return "Count";
+    }
+
+    var allGoals = await db.ChallengeGoals
         .Include(g => g.ActivityLinks)
             .ThenInclude(gl => gl.Activity)
-        .Where(g => g.MetricCategory == null || g.MetricCategory == "Count")
         .ToListAsync();
-    if (goalsNeedingCategory.Count > 0)
+    bool anyCategoryChanged = false;
+    foreach (var goal in allGoals)
     {
-        foreach (var goal in goalsNeedingCategory)
+        var inferred = InferGoalMetricCategory(goal);
+        if (goal.MetricCategory != inferred)
         {
-            if (goal.ActivityLinks.Any(gl => gl.Activity.ActivityType == "Distance"))
-                goal.MetricCategory = "Distance";
-            else if (goal.ActivityLinks.Any(gl => gl.Activity.ActivityType == "Time"))
-                goal.MetricCategory = "Time";
-            else if (goal.ActivityLinks.Any(gl => gl.Activity.ActivityType == "DistanceAndTime"))
-                goal.MetricCategory = "Distance";
-            else
-                goal.MetricCategory = "Count";
+            goal.MetricCategory = inferred;
+            anyCategoryChanged = true;
         }
-        await db.SaveChangesAsync();
+    }
+    if (anyCategoryChanged) await db.SaveChangesAsync();
 
-        // Recalculate GoalProgress for accumulation and per-entry goals
-        var allProgresses = await db.GoalProgresses
-            .Include(p => p.Goal)
-            .Where(p => p.Goal.Type == "Achievement")
-            .ToListAsync();
+    var allProgresses = await db.GoalProgresses
+        .Include(p => p.Goal)
+        .Where(p => p.Goal.Type == "Achievement")
+        .ToListAsync();
+    if (allProgresses.Count > 0)
+    {
         foreach (var gp in allProgresses)
         {
             var entries = await db.ProgressEntries
@@ -126,20 +140,17 @@ using (IServiceScope scope = app.Services.CreateScope())
                     && e.UserId == gp.UserId)
                 .ToListAsync();
 
-            if (gp.Goal.IsPerEntry)
-            {
-                gp.CurrentValue = entries.Max(e => GetMetricDelta(e.Amount, e.TimeAmount, e.Activity, gp.Goal.MetricCategory));
-            }
-            else
-            {
-                gp.CurrentValue = entries.Sum(e => GetMetricDelta(e.Amount, e.TimeAmount, e.Activity, gp.Goal.MetricCategory));
-            }
+            gp.CurrentValue = gp.Goal.IsPerEntry
+                ? entries.Max(e => GetMetricDelta(e.Amount, e.TimeAmount, e.Activity, gp.Goal.MetricCategory))
+                : entries.Sum(e => GetMetricDelta(e.Amount, e.TimeAmount, e.Activity, gp.Goal.MetricCategory));
 
             if (gp.Goal.TargetValue.HasValue)
             {
                 gp.IsCompleted = gp.CurrentValue >= gp.Goal.TargetValue.Value;
                 if (gp.IsCompleted && gp.CompletedAt == null)
                     gp.CompletedAt = DateTime.UtcNow;
+                else if (!gp.IsCompleted)
+                    gp.CompletedAt = null;
             }
             gp.UpdatedAt = DateTime.UtcNow;
         }
