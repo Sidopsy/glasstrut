@@ -856,6 +856,12 @@ document.addEventListener("DOMContentLoaded", () => {
   // Scroll active input into view when mobile keyboard opens
   if (window.visualViewport) {
     window.visualViewport.addEventListener("resize", () => {
+      // Adjust bottom nav for browser chrome / keyboard
+      const nav = document.getElementById("bottom-nav");
+      if (nav && !nav.classList.contains("hidden")) {
+        const offset = window.innerHeight - window.visualViewport.height;
+        nav.style.bottom = offset + "px";
+      }
       if (window.visualViewport.height < window.innerHeight * 0.8) {
         const active = document.activeElement;
         if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT")) {
@@ -1825,6 +1831,7 @@ async function submitChallenge(event) {
   setLoading(btn, false);
 
   if (res.ok) {
+    unsavedWizardChanges = false;
     closeChallengeModal();
     loadAllData();
     showToast("Saved", editId ? "Challenge updated!" : "Challenge created!", "success");
